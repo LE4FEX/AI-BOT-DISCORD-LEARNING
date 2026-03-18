@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 let yahooFinance;
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function initStock() {
     const module = await import('yahoo-finance2');
