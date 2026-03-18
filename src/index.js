@@ -3,6 +3,8 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const cron = require('node-cron');
+const axios = require('axios');
+const cheerio = require('cheerio');
 
 // Models
 const Watchlist = require('./models/watchlist');
@@ -25,6 +27,23 @@ const client = new Client({
         GatewayIntentBits.GuildMessages
     ] 
 });
+
+// ฟังก์ชันดึงพาดหัวข่าวล่าสุดจาก Google News
+async function getStockNews(symbol) {
+    try {
+        const response = await axios.get(`https://www.google.com/search?q=${symbol}+stock+news&tbm=nws`, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const $ = cheerio.load(response.data);
+        let news = [];
+        $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => {
+            if (i < 3) news.push($(el).text()); // เอาแค่ 3 ข่าวล่าสุด
+        });
+        return news.join(' | ');
+    } catch (e) {
+        return "No recent news found";
+    }
+}
 
 // ฟังก์ชันดึงราคาหุ้น
 async function getStockPrice(symbol) {
@@ -58,11 +77,13 @@ cron.schedule('*/30 * * * 1-5', async () => {
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
 
             if (Math.abs(change) >= 3) {
-                // เรียก Model ภายในฟังก์ชันเพื่อลดปัญหา Error 404
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                // อัปเดตเป็น 2.5-flash เพื่อแก้ 404
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const news = await getStockNews(item.symbol); // ดึงข่าวมาประกอบด้วยเลย
                 
                 const prompt = `หุ้น ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
-                วิเคราะห์เชิงลึก: จังหวะนี้ควร "ขายทำกำไร", "DCA เพิ่ม", หรือ "ถือ" เพราะอะไร? (ตอบภาษาไทยสั้นๆ)`;
+                ข่าวล่าสุด: ${news}
+                วิเคราะห์เชิงลึก: จังหวะนี้ควร "ขายทำกำไร", "DCA เพิ่ม", หรือ "ถือ" เพราะอะไร? (วิเคราะห์จากราคาและข่าว ตอบภาษาไทยสั้นๆ)`;
                 
                 const result = await model.generateContent(prompt);
                 const user = await client.users.fetch(item.userId);
@@ -86,7 +107,8 @@ cron.schedule('0 10 * * 6', async () => {
                 data.push({ symbol: s.symbol, cost: s.avgPrice, current: q.price, amount: s.amount });
             }
 
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            // อัปเดตเป็น 2.5-flash
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const prompt = `วิเคราะห์พอร์ตรายสัปดาห์ (Efficiency Insights): ${JSON.stringify(data)}
             1. ความเสี่ยงการกระจุกตัว (Diversification)
             2. แนะนำการ Rebalance (โยกเงิน)
@@ -108,20 +130,12 @@ client.once('ready', async () => {
     } catch (err) {
         console.error('❌ DB Connection Error:', err);
     }
-
-    // ตรวจสอบสถานะการเชื่อมต่อ AI
-    try {
-        const result = await genAI.listModels();
-        console.log("✅ AI Connection Verified");
-    } catch (error) {
-        console.error("⚠️ AI Model Verification failed (Wait for newer Library version)");
-    }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- ANALYZE PORTFOLIO (วิเคราะห์เชิงลึกรายตัว) ---
+    // --- ANALYZE PORTFOLIO (วิเคราะห์เชิงลึกรายตัว + ข่าวต่างประเทศ) ---
     if (interaction.commandName === 'analyze-portfolio') {
         await interaction.deferReply();
         try {
@@ -131,23 +145,32 @@ client.on(Events.InteractionCreate, async interaction => {
             let portfolio = [];
             for (const s of stocks) {
                 const q = await getStockPrice(s.symbol);
+                const news = await getStockNews(s.symbol); // 🚀 ระบบดึงข่าวทำงานตรงนี้
+                
                 portfolio.push({ 
                     symbol: s.symbol, cost: s.avgPrice, current: q.price, 
                     profit: ((q.price - s.avgPrice) * s.amount).toFixed(2),
-                    amount: s.amount
+                    amount: s.amount,
+                    latestNews: news // 🚀 แนบข่าวเข้าไปในข้อมูลพอร์ต
                 });
             }
 
-            // จุดสำคัญ: เรียก Model ตรงนี้เพื่อบังคับใช้เวอร์ชันปัจจุบัน
             const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             
-            const prompt = `ในฐานะที่ปรึกษาการลงทุน ช่วยวิเคราะห์เชิงลึกและแนะนำจุด ซื้อ/ขาย/DCA ของพอร์ตนี้: ${JSON.stringify(portfolio)} ตอบภาษาไทยแบบเน้นกลยุทธ์เติบโต`;
+            const prompt = `ในฐานะผู้เชี่ยวชาญด้านหุ้นต่างประเทศ ช่วยวิเคราะห์พอร์ตนี้โดยพิจารณาจาก "ราคา" และ "ข่าวล่าสุด (latestNews)":
+            ${JSON.stringify(portfolio)}
+            
+            รูปแบบการตอบ:
+            1. สรุปภาพรวมตลาดตามข่าวปัจจุบัน (Global Sentiment)
+            2. วิเคราะห์หุ้นรายตัวในพอร์ตว่าข่าวล่าสุดส่งผลดีหรือเสียอย่างไร
+            3. แนะนำกลยุทธ์ (Actionable Plan) ตามกระแสข่าว ควรซื้อเพิ่มหรือขายทำกำไร
+            ตอบเป็นภาษาไทยแบบมืออาชีพ อ่านง่าย และชัดเจน`;
             
             const result = await model.generateContent(prompt);
-            await interaction.editReply(`🤖 **AI Strategic Analysis**\n\n${result.response.text().substring(0, 1900)}`);
+            await interaction.editReply(`🤖 **AI Global News & Strategic Analysis**\n\n${result.response.text().substring(0, 1900)}`);
         } catch (e) { 
             console.error("AI Error:", e);
-            await interaction.editReply('❌ AI ไม่พบ Model: กรุณามั่นใจว่าได้แก้ไข package.json และกด Clear Build Cache ใน Render แล้ว');
+            await interaction.editReply('❌ ระบบวิเคราะห์ขัดข้อง กรุณาลองใหม่อีกครั้ง');
         }
 
     // --- WATCHLIST (ดูสถานะปัจจุบัน) ---
