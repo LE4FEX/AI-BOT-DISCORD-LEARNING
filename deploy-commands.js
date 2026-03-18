@@ -16,6 +16,14 @@ const commands = [
         .addStringOption(option => 
             option.setName('symbol')
                 .setDescription('ตัวย่อหุ้น (เช่น MSFT, NVDA)')
+                .setRequired(true))
+        .addNumberOption(option => 
+            option.setName('amount')
+                .setDescription('จำนวนหุ้นที่ถือ')
+                .setRequired(true))
+        .addNumberOption(option => 
+            option.setName('avgprice')
+                .setDescription('ราคาเฉลี่ยที่ซื้อมา (USD)')
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('remove-stock')

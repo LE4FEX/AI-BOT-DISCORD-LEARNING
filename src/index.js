@@ -105,15 +105,17 @@ client.on(Events.InteractionCreate, async interaction => {
     } else if (interaction.commandName === 'add-stock') {
         await interaction.deferReply();
         const symbol = interaction.options.getString('symbol').toUpperCase();
+        const amount = interaction.options.getNumber('amount');
+        const avgPrice = interaction.options.getNumber('avgprice');
         const userId = interaction.user.id;
         try {
             const existing = await Watchlist.findOne({ userId, symbol });
             if (existing) {
                 return await interaction.editReply(`⚠️ ${symbol} อยู่ใน Watchlist อยู่แล้วครับ`);
             }
-            const newEntry = new Watchlist({ userId, symbol });
+            const newEntry = new Watchlist({ userId, symbol, amount, avgPrice });
             await newEntry.save();
-            await interaction.editReply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ`);
+            await interaction.editReply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ (จำนวน: ${amount}, ราคาเฉลี่ย: ${avgPrice} USD)`);
         } catch (error) {
             console.error(error);
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
@@ -149,10 +151,10 @@ client.on(Events.InteractionCreate, async interaction => {
                 const sym = entry.symbol;
                 try {
                     const quote = await getStockPrice(sym);
-                    const price = quote.price.toFixed(2);
-                    const change = ((parseFloat(price) - quote.previousClose) / quote.previousClose * 100).toFixed(2);
-                    const color = change >= 0 ? '🟢' : '🔴';
-                    return `• **${quote.symbol}**: ${price} ${quote.currency} ${color} ${change}%`;
+                    const currentPrice = parseFloat(quote.price.toFixed(2));
+                    const pnl = (currentPrice - entry.avgPrice) * entry.amount;
+                    const pnlStr = pnl >= 0 ? `🟢 +${pnl.toFixed(2)} USD` : `🔴 ${pnl.toFixed(2)} USD`;
+                    return `• **${quote.symbol}**: ${quote.price.toFixed(2)} ${quote.currency} | ถือ: ${entry.amount} หุ้น @ ${entry.avgPrice} USD | P&L: ${pnlStr}`;
                 } catch (e) {
                     return `• **${sym}**: ❌ ไม่พบข้อมูล`;
                 }
