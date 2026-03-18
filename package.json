@@ -1,0 +1,15 @@
+{
+  "name": "ai-bot-discord-learning",
+  "version": "1.0.0",
+  "description": "Discord bot learning project with MongoDB",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "express": "^5.2.1",
+    "mongoose": "^8.1.1",
+    "yahoo-finance2": "^2.11.3"
+  }
+}
