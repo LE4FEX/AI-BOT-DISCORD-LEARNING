@@ -12,7 +12,7 @@ const Transaction = require('./models/transaction');
 
 // Setup AI - ใช้รุ่นล่าสุดที่เสถียรที่สุดในตอนนี้
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.0-flash"; // ใช้รุ่น 2.0 ล่าสุดเพื่อประสิทธิภาพสูงสุด
+const MODEL_NAME = "gemini-2.5-flash"; // กลับไปใช้รุ่นที่ใช้งานได้ตามปกติเพื่อแก้ปัญหา 404
 
 // กำหนด System Instruction เพื่อควบคุมสไตล์การตอบ
 const systemInstruction = `คุณคือ 'AI Alpha' นักวิเคราะห์การลงทุนมืออาชีพ
