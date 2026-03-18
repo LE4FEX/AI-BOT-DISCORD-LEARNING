@@ -55,6 +55,9 @@ const commands = [
             option.setName('question')
                 .setDescription('คำถามของคุณ')
                 .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('discover')
+        .setDescription('ค้นหาหุ้นที่น่าสนใจและมีโอกาสทำกำไรในขณะนี้'),
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
