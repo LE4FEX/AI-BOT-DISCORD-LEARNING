@@ -11,6 +11,7 @@
     "discord.js": "^14.14.1",
     "express": "^5.2.1",
     "mongoose": "^8.1.1",
+    "node-cron": "^4.2.1",
     "yahoo-finance2": "^2.11.3"
   }
 }
