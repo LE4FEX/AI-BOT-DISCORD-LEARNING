@@ -139,7 +139,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
 
             // จุดสำคัญ: เรียก Model ตรงนี้เพื่อบังคับใช้เวอร์ชันปัจจุบัน
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             
             const prompt = `ในฐานะที่ปรึกษาการลงทุน ช่วยวิเคราะห์เชิงลึกและแนะนำจุด ซื้อ/ขาย/DCA ของพอร์ตนี้: ${JSON.stringify(portfolio)} ตอบภาษาไทยแบบเน้นกลยุทธ์เติบโต`;
             
