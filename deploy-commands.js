@@ -11,14 +11,21 @@ const commands = [
                 .setDescription('ตัวย่อหุ้น (เช่น MSFT, NVDA)')
                 .setRequired(true)),
     new SlashCommandBuilder()
-        .setName('add-watchlist')
+        .setName('add-stock')
         .setDescription('เพิ่มหุ้นเข้า Watchlist')
         .addStringOption(option => 
             option.setName('symbol')
                 .setDescription('ตัวย่อหุ้น (เช่น MSFT, NVDA)')
                 .setRequired(true)),
     new SlashCommandBuilder()
-        .setName('view-watchlist')
+        .setName('remove-stock')
+        .setDescription('ลบหุ้นออกจาก Watchlist')
+        .addStringOption(option => 
+            option.setName('symbol')
+                .setDescription('ตัวย่อหุ้น (เช่น MSFT, NVDA)')
+                .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('watchlist')
         .setDescription('ดูหุ้นทั้งหมดใน Watchlist ของคุณ'),
 ];
 

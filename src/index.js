@@ -102,30 +102,37 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             await interaction.editReply(`❌ ไม่พบข้อมูลหุ้นชื่อ "${symbol}" หรือเกิดข้อผิดพลาดครับ`);
         }
-    } else if (interaction.commandName === 'add-watchlist') {
+    } else if (interaction.commandName === 'add-stock') {
         const symbol = interaction.options.getString('symbol').toUpperCase();
         const userId = interaction.user.id;
-        let watchlist = await Watchlist.findOne({ userId });
-        if (!watchlist) {
-            watchlist = new Watchlist({ userId, symbols: [] });
-        }
-        if (!watchlist.symbols.includes(symbol)) {
-            watchlist.symbols.push(symbol);
-            await watchlist.save();
-            await interaction.reply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ`);
-        } else {
+        const existing = await Watchlist.findOne({ userId, symbol });
+        if (existing) {
             await interaction.reply(`⚠️ ${symbol} อยู่ใน Watchlist อยู่แล้วครับ`);
+        } else {
+            const newEntry = new Watchlist({ userId, symbol });
+            await newEntry.save();
+            await interaction.reply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ`);
         }
-    } else if (interaction.commandName === 'view-watchlist') {
+    } else if (interaction.commandName === 'remove-stock') {
+        const symbol = interaction.options.getString('symbol').toUpperCase();
         const userId = interaction.user.id;
-        const watchlist = await Watchlist.findOne({ userId });
-        if (!watchlist || watchlist.symbols.length === 0) {
+        const result = await Watchlist.deleteOne({ userId, symbol });
+        if (result.deletedCount > 0) {
+            await interaction.reply(`✅ ลบ ${symbol} ออกจาก Watchlist แล้วครับ`);
+        } else {
+            await interaction.reply(`⚠️ ${symbol} ไม่อยู่ใน Watchlist ของคุณครับ`);
+        }
+    } else if (interaction.commandName === 'watchlist') {
+        const userId = interaction.user.id;
+        const watchlists = await Watchlist.find({ userId });
+        if (watchlists.length === 0) {
             await interaction.reply('📭 Watchlist ของคุณว่างเปล่าครับ');
             return;
         }
         await interaction.deferReply();
         let response = '📋 **Watchlist ของคุณ:**\n';
-        for (const sym of watchlist.symbols) {
+        for (const entry of watchlists) {
+            const sym = entry.symbol;
             try {
                 const quote = await getStockPrice(sym);
                 const price = quote.price.toFixed(2);
