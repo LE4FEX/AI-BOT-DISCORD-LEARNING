@@ -1,8 +1,15 @@
 const express = require('express');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const mongoose = require('mongoose');
-const { default: yahooFinance } = require('yahoo-finance2');
+let yahooFinance;
 const Watchlist = require('./models/watchlist');
+
+async function initStock() {
+    const module = await import('yahoo-finance2');
+    yahooFinance = module.default;
+}
+
+initStock();
 
 // เซิร์ฟเวอร์ HTTP สำหรับ Render (Health check)
 const app = express();
