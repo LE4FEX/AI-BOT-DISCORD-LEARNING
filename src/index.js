@@ -134,27 +134,30 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการลบข้อมูล');
         }
     } else if (interaction.commandName === 'watchlist') {
-        const userId = interaction.user.id;
-        const watchlists = await Watchlist.find({ userId });
-        if (watchlists.length === 0) {
-            await interaction.reply('📭 Watchlist ของคุณว่างเปล่าครับ');
-            return;
-        }
         await interaction.deferReply();
-        let response = '📋 **Watchlist ของคุณ:**\n';
-        for (const entry of watchlists) {
-            const sym = entry.symbol;
-            try {
-                const quote = await getStockPrice(sym);
-                const price = quote.price.toFixed(2);
-                const change = ((parseFloat(price) - quote.previousClose) / quote.previousClose * 100).toFixed(2);
-                const color = change >= 0 ? '🟢' : '🔴';
-                response += `• ${quote.symbol}: ${price} ${quote.currency} ${color} ${change}%\n`;
-            } catch (e) {
-                response += `• ${sym}: ❌ ไม่พบข้อมูล\n`;
+        const userId = interaction.user.id;
+        
+        try {
+            const watchlists = await Watchlist.find({ userId });
+            if (watchlists.length === 0) {
+                return await interaction.editReply('📭 Watchlist ของคุณว่างเปล่าครับ');
             }
+
+            const results = await Promise.all(watchlists.map(async (entry) => {
+                try {
+                    const quote = await getStockPrice(entry.symbol);
+                    const change = ((quote.price - quote.previousClose) / quote.previousClose * 100).toFixed(2);
+                    const color = change >= 0 ? '🟢' : '🔴';
+                    return `• ${quote.symbol}: ${quote.price.toFixed(2)} ${quote.currency} ${color} ${change}%`;
+                } catch (e) {
+                    return `• ${entry.symbol}: ❌ ไม่พบข้อมูล`;
+                }
+            }));
+
+            await interaction.editReply('📋 **Watchlist ของคุณ:**\n' + results.join('\n'));
+        } catch (error) {
+            await interaction.editReply('❌ เกิดข้อผิดพลาดในการดึงข้อมูล');
         }
-        await interaction.editReply(response);
     }
 });
 
