@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const mongoose = require('mongoose');
 let yahooFinance;
 const Watchlist = require('./models/watchlist');
+const Transaction = require('./models/transaction');
 
 async function initStock() {
     const module = await import('yahoo-finance2');
