@@ -168,9 +168,11 @@ client.on(Events.InteractionCreate, async interaction => {
             }
 
             let totalProfit = 0;
-            const results = await Promise.all(watchlists.map(async (entry) => {
+            let results = [];
+            for (const entry of watchlists) {
+                const sym = entry.symbol;
                 try {
-                    const quote = await getStockPrice(entry.symbol);
+                    const quote = await getStockPrice(sym);
                     const currentPrice = quote.price;
                     const cost = entry.avgPrice * entry.amount;
                     const currentValue = currentPrice * entry.amount;
@@ -180,11 +182,11 @@ client.on(Events.InteractionCreate, async interaction => {
                     const profitPercent = ((currentPrice - entry.avgPrice) / entry.avgPrice * 100).toFixed(2);
                     const color = profit >= 0 ? '🟢' : '🔴';
 
-                    return `${color} **${entry.symbol}**: $${currentPrice.toFixed(2)} (${profitPercent}%)\n   └ กำไร: **$${profit.toFixed(2)}** (${entry.amount} หุ้น)`;
+                    results.push(`${color} **${entry.symbol}**: $${currentPrice.toFixed(2)} (${profitPercent}%)\n   └ กำไร: **$${profit.toFixed(2)}** (${entry.amount} หุ้น)`);
                 } catch (e) {
-                    return `• **${entry.symbol}**: ❌ ดึงข้อมูลไม่ได้`;
+                    results.push(`• **${sym}**: ⚠️ ดึงข้อมูลไม่ได้ชั่วคราว`);
                 }
-            }));
+            }
 
             const totalEmoji = totalProfit >= 0 ? '💰' : '📉';
             const summary = `📊 **พอร์ตการลงทุนของคุณ**\n${results.join('\n')}\n\n${totalEmoji} **กำไร/ขาดทุนรวม: $${totalProfit.toFixed(2)}**`;
