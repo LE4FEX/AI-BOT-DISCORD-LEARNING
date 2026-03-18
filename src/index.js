@@ -103,24 +103,35 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply(`❌ ไม่พบข้อมูลหุ้นชื่อ "${symbol}" หรือเกิดข้อผิดพลาดครับ`);
         }
     } else if (interaction.commandName === 'add-stock') {
+        await interaction.deferReply();
         const symbol = interaction.options.getString('symbol').toUpperCase();
         const userId = interaction.user.id;
-        const existing = await Watchlist.findOne({ userId, symbol });
-        if (existing) {
-            await interaction.reply(`⚠️ ${symbol} อยู่ใน Watchlist อยู่แล้วครับ`);
-        } else {
+        try {
+            const existing = await Watchlist.findOne({ userId, symbol });
+            if (existing) {
+                return await interaction.editReply(`⚠️ ${symbol} อยู่ใน Watchlist อยู่แล้วครับ`);
+            }
             const newEntry = new Watchlist({ userId, symbol });
             await newEntry.save();
-            await interaction.reply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ`);
+            await interaction.editReply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ`);
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         }
     } else if (interaction.commandName === 'remove-stock') {
+        await interaction.deferReply();
         const symbol = interaction.options.getString('symbol').toUpperCase();
         const userId = interaction.user.id;
-        const result = await Watchlist.deleteOne({ userId, symbol });
-        if (result.deletedCount > 0) {
-            await interaction.reply(`✅ ลบ ${symbol} ออกจาก Watchlist แล้วครับ`);
-        } else {
-            await interaction.reply(`⚠️ ${symbol} ไม่อยู่ใน Watchlist ของคุณครับ`);
+        try {
+            const result = await Watchlist.deleteOne({ userId, symbol });
+            if (result.deletedCount > 0) {
+                await interaction.editReply(`✅ ลบ ${symbol} ออกจาก Watchlist แล้วครับ`);
+            } else {
+                await interaction.editReply(`⚠️ ${symbol} ไม่อยู่ใน Watchlist ของคุณครับ`);
+            }
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply('❌ เกิดข้อผิดพลาดในการลบข้อมูล');
         }
     } else if (interaction.commandName === 'watchlist') {
         const userId = interaction.user.id;
