@@ -48,6 +48,13 @@ const commands = [
     new SlashCommandBuilder()
         .setName('analyze-portfolio')
         .setDescription('ให้ AI (Gemini) ช่วยวิเคราะห์พอร์ตการลงทุนของคุณอย่างละเอียด'),
+    new SlashCommandBuilder()
+        .setName('ask')
+        .setDescription('ถามคำถามเกี่ยวกับหุ้นหรือการลงทุนกับ AI')
+        .addStringOption(option => 
+            option.setName('question')
+                .setDescription('คำถามของคุณ')
+                .setRequired(true)),
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
