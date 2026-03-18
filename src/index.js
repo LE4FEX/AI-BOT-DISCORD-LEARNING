@@ -109,27 +109,36 @@ client.on(Events.InteractionCreate, async interaction => {
         const avgPrice = interaction.options.getNumber('avg_price');
         const userId = interaction.user.id;
         try {
-            const existing = await Watchlist.findOne({ userId, symbol });
-            if (existing) {
-                // สูตรคำนวณค่าเฉลี่ยใหม่
-                const newTotalAmount = existing.amount + amount;
-                const newTotalCost = (existing.amount * existing.avgPrice) + (amount * avgPrice);
-                const newAvgPrice = newTotalCost / newTotalAmount;
+            // 1. ค้นหาข้อมูลหุ้นนี้ใน Database ก่อน
+            let stock = await Watchlist.findOne({ userId, symbol });
 
-                existing.amount = newTotalAmount;
-                existing.avgPrice = newAvgPrice;
-                await existing.save();
+            if (stock) {
+                // 2. ถ้ามีอยู่แล้ว -> คำนวณราคาเฉลี่ยใหม่ (Weighted Average)
+                const oldTotalCost = stock.amount * stock.avgPrice;
+                const newPurchaseCost = amount * avgPrice;
+                const newTotalAmount = stock.amount + amount;
                 
-                await interaction.editReply(`✅ ซื้อเพิ่มเรียบร้อย! ตอนนี้ถือ **${symbol}** รวม ${newTotalAmount.toFixed(4)} หุ้น (ทุนเฉลี่ย $${newAvgPrice.toFixed(2)})`);
+                // สูตร: (ต้นทุนเดิม + ต้นทุนใหม่) / จำนวนหุ้นทั้งหมด
+                const newAvgPrice = (oldTotalCost + newPurchaseCost) / newTotalAmount;
+
+                stock.amount = newTotalAmount;
+                stock.avgPrice = newAvgPrice;
+                await stock.save();
+
+                await interaction.editReply(
+                    `🔄 **อัปเดตพอร์ต ${symbol} เรียบร้อย!**\n` +
+                    `📦 ถือรวมทั้งหมด: **${newTotalAmount.toFixed(4)} หุ้น**\n` +
+                    `💰 ต้นทุนเฉลี่ยใหม่: **$${newAvgPrice.toFixed(2)}**`
+                );
             } else {
-                // ถ้ายังไม่มีหุ้นนี้ ก็บันทึกปกติ
+                // 3. ถ้ายังไม่มี -> บันทึกเป็นรายการแรก
                 const newEntry = new Watchlist({ userId, symbol, amount, avgPrice });
                 await newEntry.save();
-                await interaction.editReply(`✅ เพิ่ม **${symbol}** เข้าพอร์ตเรียบร้อยครับ`);
+                await interaction.editReply(`✅ เพิ่ม **${symbol}** เข้าพอร์ตเป็นครั้งแรกแล้วครับที่ราคา $${avgPrice}`);
             }
         } catch (error) {
             console.error(error);
-            await interaction.editReply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            await interaction.editReply('❌ เกิดข้อผิดพลาดในการคำนวณพอร์ต');
         }
     } else if (interaction.commandName === 'remove-stock') {
         await interaction.deferReply();
