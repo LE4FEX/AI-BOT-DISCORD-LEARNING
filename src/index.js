@@ -202,6 +202,22 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply(`📊 **Portfolio Overview**\n${results.join('\n')}\n\n💰 **รวมกำไร/ขาดทุนทั้งหมด: $${totalProfit.toFixed(2)}**`);
         } catch (e) { await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูล"); }
 
+    // --- STOCK ---
+    } else if (interaction.commandName === 'stock') {
+        await interaction.deferReply();
+        const symbol = interaction.options.getString('symbol').toUpperCase();
+        try {
+            const q = await getStockPrice(symbol);
+            const news = await getStockNews(symbol);
+            const change = ((q.price - q.previousClose) / q.previousClose * 100);
+            
+            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+            const prompt = `หุ้น ${symbol} ราคา $${q.price} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%) ข่าวล่าสุด: ${news}. สรุปสั้นๆ ว่าน่าสนใจไหม (ภาษาไทย)`;
+            const result = await model.generateContent(prompt);
+
+            await interaction.editReply(`📈 **${symbol}**\n💰 ราคา: $${q.price.toFixed(2)} (${change >= 0 ? '🔼' : '🔽'} ${change.toFixed(2)}%)\n📰 สรุป AI: ${result.response.text()}`);
+        } catch (e) { await interaction.editReply(`❌ ไม่พบข้อมูลหุ้น ${symbol}`); }
+
     // --- ADD-STOCK ---
     } else if (interaction.commandName === 'add-stock') {
         await interaction.deferReply();
@@ -219,8 +235,62 @@ client.on(Events.InteractionCreate, async interaction => {
                 await Watchlist.create({ userId: interaction.user.id, symbol, amount, avgPrice });
             }
             await Transaction.create({ userId: interaction.user.id, symbol, type: 'BUY', amount, price: avgPrice });
-            await interaction.editReply(`✅ บันทึกการเพิ่มหุ้น **${symbol}** เรียบร้อย!`);
+            await interaction.editReply(`✅ บันทึกการเพิ่มหุ้น **${symbol}** จำนวน ${amount} หุ้น ที่ราคา $${avgPrice} เรียบร้อย!`);
         } catch (e) { await interaction.editReply("❌ บันทึกข้อมูลไม่สำเร็จ"); }
+
+    // --- REMOVE-STOCK ---
+    } else if (interaction.commandName === 'remove-stock') {
+        await interaction.deferReply();
+        const symbol = interaction.options.getString('symbol').toUpperCase();
+        try {
+            const stock = await Watchlist.findOne({ userId: interaction.user.id, symbol });
+            if (!stock) return await interaction.editReply(`❌ คุณไม่มีหุ้น ${symbol} ใน Watchlist`);
+            
+            await Transaction.create({ userId: interaction.user.id, symbol, type: 'SELL', amount: stock.amount, price: 0 }); // price=0 because we just remove
+            await Watchlist.deleteOne({ _id: stock._id });
+            await interaction.editReply(`✅ ลบหุ้น **${symbol}** ออกจาก Watchlist เรียบร้อย!`);
+        } catch (e) { await interaction.editReply("❌ เกิดข้อผิดพลาดในการลบข้อมูล"); }
+
+    // --- UPDATE-STOCK ---
+    } else if (interaction.commandName === 'update-stock') {
+        await interaction.deferReply();
+        const symbol = interaction.options.getString('symbol').toUpperCase();
+        const amount = interaction.options.getNumber('amount');
+        const avgPrice = interaction.options.getNumber('avg_price');
+        try {
+            let stock = await Watchlist.findOne({ userId: interaction.user.id, symbol });
+            if (!stock) return await interaction.editReply(`❌ คุณไม่มีหุ้น ${symbol} ใน Watchlist กรุณาใช้ /add-stock แทน`);
+            
+            stock.amount = amount;
+            stock.avgPrice = avgPrice;
+            await stock.save();
+            
+            await Transaction.create({ userId: interaction.user.id, symbol, type: 'UPDATE', amount, price: avgPrice });
+            await interaction.editReply(`✅ อัปเดตข้อมูลหุ้น **${symbol}** เป็น ${amount} หุ้น ที่ราคา $${avgPrice} เรียบร้อย!`);
+        } catch (e) { await interaction.editReply("❌ อัปเดตข้อมูลไม่สำเร็จ"); }
+
+    // --- HISTORY ---
+    } else if (interaction.commandName === 'history') {
+        await interaction.deferReply();
+        const symbol = interaction.options.getString('symbol')?.toUpperCase();
+        try {
+            const query = { userId: interaction.user.id };
+            if (symbol) query.symbol = symbol;
+
+            const logs = await Transaction.find(query).sort({ date: -1 }).limit(15);
+            if (logs.length === 0) return await interaction.editReply("📭 ไม่พบประวัติการทำรายการ");
+
+            let historyText = logs.map(l => {
+                const dateStr = l.date.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                const icon = l.type === 'BUY' ? '🔵' : (l.type === 'SELL' ? '🔴' : '⚙️');
+                return `${icon} **${l.type}** ${l.symbol} | ${l.amount} หุ้น | $${l.price}\n   └ 📅 ${dateStr}`;
+            }).join('\n');
+
+            await interaction.editReply(`📜 **ประวัติการทำรายการ 15 รายการล่าสุด**\n${historyText}`);
+        } catch (e) { 
+            console.error(e);
+            await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูลประวัติ"); 
+        }
     }
 });
 
