@@ -8,7 +8,7 @@ const cron = require('node-cron');
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
 
-// Setup AI - ใช้ gemini-1.5-flash ซึ่งเสถียรที่สุดในปัจจุบัน
+// Setup AI - สร้าง Instance ไว้สำหรับดึง Model ในภายหลัง
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // HTTP Server for Render
@@ -47,7 +47,6 @@ async function getStockPrice(symbol) {
 
 // ==========================================
 // 🚨 ระบบเฝ้าระวังตลาดและแจ้งเตือน AI อัตโนมัติ (Efficiency Insights)
-// ทำงานทุก 30 นาที (จันทร์-ศุกร์ ช่วงตลาดเปิด)
 // ==========================================
 cron.schedule('*/30 * * * 1-5', async () => {
     console.log("🔍 AI กำลังตรวจสอบความเคลื่อนไหวของตลาด...");
@@ -58,12 +57,10 @@ cron.schedule('*/30 * * * 1-5', async () => {
             const quote = await getStockPrice(item.symbol);
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
 
-            // แจ้งเตือนเมื่อราคาขยับแรง (> 3%)
             if (Math.abs(change) >= 3) {
-                const model = genAI.getGenerativeModel({ 
-                model: "gemini-1.5-flash",
-                apiVersion: 'v1' // บังคับให้ใช้ v1 แทน v1beta ที่มันมีปัญหา
-            });
+                // เรียก Model ภายในฟังก์ชันเพื่อลดปัญหา Error 404
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                
                 const prompt = `หุ้น ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
                 วิเคราะห์เชิงลึก: จังหวะนี้ควร "ขายทำกำไร", "DCA เพิ่ม", หรือ "ถือ" เพราะอะไร? (ตอบภาษาไทยสั้นๆ)`;
                 
@@ -102,10 +99,9 @@ cron.schedule('0 10 * * 6', async () => {
     }
 });
 
-client.once('ready', async () => { // เพิ่ม async ตรงนี้
+client.once('ready', async () => {
     console.log(`🤖 AI Bot Ready: ${client.user.tag}`);
     
-    // เชื่อมต่อ Database
     try {
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ DB Connected');
@@ -113,14 +109,12 @@ client.once('ready', async () => { // เพิ่ม async ตรงนี้
         console.error('❌ DB Connection Error:', err);
     }
 
-    // 🔍 ตรวจสอบรายชื่อ Model ที่ Key นี้ใช้ได้จริง (เพื่อแก้ 404)
+    // ตรวจสอบสถานะการเชื่อมต่อ AI
     try {
         const result = await genAI.listModels();
-        console.log("--- รายชื่อ Model ที่คุณใช้ได้ ---");
-        result.models.forEach(m => console.log(m.name));
-        console.log("------------------------------");
+        console.log("✅ AI Connection Verified");
     } catch (error) {
-        console.error("❌ ไม่สามารถดึงรายชื่อ Model ได้:", error.message);
+        console.error("⚠️ AI Model Verification failed (Wait for newer Library version)");
     }
 });
 
@@ -144,14 +138,16 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
             }
 
+            // จุดสำคัญ: เรียก Model ตรงนี้เพื่อบังคับใช้เวอร์ชันปัจจุบัน
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-            const prompt = `ในฐานะที่ปรึกษาการลงทุน ช่วยวิเคราะห์เชิงลึกและแนะนำจุด ซื้อ/ขาย/DCA ของพอร์ตนี้: ${JSON.stringify(portfolio)} ตอบภาษาไทยแบบเน้นผลลัพธ์ที่ดีที่สุด`;
+            
+            const prompt = `ในฐานะที่ปรึกษาการลงทุน ช่วยวิเคราะห์เชิงลึกและแนะนำจุด ซื้อ/ขาย/DCA ของพอร์ตนี้: ${JSON.stringify(portfolio)} ตอบภาษาไทยแบบเน้นกลยุทธ์เติบโต`;
             
             const result = await model.generateContent(prompt);
             await interaction.editReply(`🤖 **AI Strategic Analysis**\n\n${result.response.text().substring(0, 1900)}`);
         } catch (e) { 
             console.error("AI Error:", e);
-            await interaction.editReply('❌ AI ขัดข้อง: กรุณาตรวจสอบ API Key หรือลองใหม่อีกครั้ง');
+            await interaction.editReply('❌ AI ไม่พบ Model: กรุณามั่นใจว่าได้แก้ไข package.json และกด Clear Build Cache ใน Render แล้ว');
         }
 
     // --- WATCHLIST (ดูสถานะปัจจุบัน) ---
