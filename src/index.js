@@ -12,30 +12,31 @@ async function initStock() {
 initStock();
 
 async function getStockPrice(symbol) {
-    // ใช้ URL นี้จะเสถียรกว่าสำหรับการดึงราคาปัจจุบัน
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+    // ปรับ URL ให้ดึงข้อมูลแบบ Summary
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
     
     try {
         const response = await fetch(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                // หลอก Yahoo ว่าเราคือ Browser จริงๆ เพื่อป้องกันการโดนบล็อก
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Referer': 'https://finance.yahoo.com/'
             }
         });
 
-        if (!response.ok) throw new Error('Network response was not ok');
-
         const data = await response.json();
         
-        // เช็คว่ามีข้อมูลหุ้นตัวนี้จริงไหม
-        if (!data.chart.result || data.chart.result.length === 0) {
-            throw new Error('Symbol not found');
+        // ตรวจสอบโครงสร้าง JSON ที่ Yahoo ส่งกลับมา
+        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('Symbol Not Found');
         }
 
         const result = data.chart.result[0].meta;
         return {
-            price: result.regularMarketPrice.toFixed(2),
+            price: result.regularMarketPrice,
             currency: result.currency,
-            symbol: result.symbol.toUpperCase(),
+            symbol: result.symbol,
             previousClose: result.previousClose
         };
     } catch (error) {
@@ -85,8 +86,8 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             const quote = await getStockPrice(symbol);
             
-            const price = parseFloat(quote.price);
-            const change = ((price - quote.previousClose) / quote.previousClose * 100).toFixed(2);
+            const price = quote.price.toFixed(2);
+            const change = ((parseFloat(price) - quote.previousClose) / quote.previousClose * 100).toFixed(2);
             const currency = quote.currency;
 
             // ตกแต่งข้อความตอบกลับ
@@ -127,8 +128,8 @@ client.on(Events.InteractionCreate, async interaction => {
         for (const sym of watchlist.symbols) {
             try {
                 const quote = await getStockPrice(sym);
-                const price = parseFloat(quote.price);
-                const change = ((price - quote.previousClose) / quote.previousClose * 100).toFixed(2);
+                const price = quote.price.toFixed(2);
+                const change = ((parseFloat(price) - quote.previousClose) / quote.previousClose * 100).toFixed(2);
                 const color = change >= 0 ? '🟢' : '🔴';
                 response += `• ${quote.symbol}: ${price} ${quote.currency} ${color} ${change}%\n`;
             } catch (e) {
