@@ -12,9 +12,36 @@ const Transaction = require('./models/transaction');
 
 // Setup AI - ใช้รุ่นล่าสุดที่เสถียรที่สุดในตอนนี้
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.5-flash"; // เลือกรุ่นที่เหมาะสมกับงานวิเคราะห์และการสร้างเนื้อหา
+const MODEL_NAME = "gemini-2.0-flash"; // ใช้รุ่น 2.0 ล่าสุดเพื่อประสิทธิภาพสูงสุด
 
-// HTTP Server for Render (Keep-alive)
+// กำหนด System Instruction เพื่อควบคุมสไตล์การตอบ
+const systemInstruction = `คุณคือ 'AI Alpha' นักวิเคราะห์การลงทุนมืออาชีพ
+หน้าที่ของคุณ:
+1. วิเคราะห์หุ้นด้วยความแม่นยำ กระชับ และตรงไปตรงมา
+2. ใช้โครงสร้างการตอบแบบ: [สรุปสภาวะ] -> [Action Plan] -> [ความเสี่ยงที่ต้องระวัง]
+3. ตัดคำทักทายและคำฟุ่มเฟือยออกทั้งหมด (เช่น "สวัสดีครับ", "จากการวิเคราะห์")
+4. หากข้อมูลไม่ชัดเจน ให้ตอบตามข้อเท็จจริง ไม่คาดเดาเกินจำเป็น
+5. ตอบเป็นภาษาไทยที่สุภาพแต่เป็นทางการแบบมืออาชีพ`;
+
+// --- UTILITY FUNCTIONS ---
+
+// ฟังก์ชันเรียกใช้ AI แบบกำหนดสไตล์
+async function getAIAnalysis(prompt) {
+    try {
+        const model = genAI.getGenerativeModel({ 
+            model: MODEL_NAME,
+            systemInstruction: systemInstruction
+        });
+        const result = await model.generateContent(prompt);
+        return result.response.text().trim();
+    } catch (e) {
+        console.error("AI Error Detailed:", e);
+        if (e.message.includes("404")) {
+            return "⚠️ AI Error: ไม่พบ Model ที่ระบุ (404) กรุณาตรวจสอบ MODEL_NAME";
+        }
+        return "⚠️ AI ไม่สามารถวิเคราะห์ได้ในขณะนี้";
+    }
+}
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('AI Investment Bot is Active! 🚀'));
@@ -98,16 +125,14 @@ cron.schedule('*/30 * * * 1-5', async () => {
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
 
             if (Math.abs(change) >= 3) {
-                const model = genAI.getGenerativeModel({ model: MODEL_NAME });
                 const news = await getStockNews(item.symbol);
-                
-                const prompt = `หุ้น ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
+                const prompt = `วิเคราะห์ด่วน: ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
                 ข่าวล่าสุด: ${news}
-                วิเคราะห์เชิงลึกสั้นๆ: ควร "ขาย", "DCA", หรือ "ถือ"? ตอบภาษาไทยสั้นๆ`;
+                ระบุ Action Plan: ขาย, DCA, หรือ ถือ พร้อมเหตุผลสั้นๆ 1 ประโยค`;
                 
-                const result = await model.generateContent(prompt);
+                const analysis = await getAIAnalysis(prompt);
                 const user = await client.users.fetch(item.userId);
-                await user.send(`📢 **AI Market Alert: ${item.symbol}**\n${result.response.text()}`);
+                await user.send(`📢 **AI Alert: ${item.symbol}**\n${analysis}`);
             }
         } catch (e) { console.error("Cron Monitor Error:", e.message); }
     }
@@ -125,16 +150,16 @@ cron.schedule('0 10 * * 6', async () => {
                 data.push({ symbol: s.symbol, cost: s.avgPrice, current: q.price, amount: s.amount });
             }
 
-            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
             const prompt = `วิเคราะห์พอร์ตรายสัปดาห์: ${JSON.stringify(data)}
-            เน้นการ Rebalance และกลยุทธ์สัปดาห์หน้าเพื่อให้พอร์ตโตดีที่สุด (ภาษาไทย)`;
+            เน้นกลยุทธ์ Rebalance และ Action Plan สัปดาห์หน้า สรุปเป็น Bullet points สั้นๆ`;
             
-            const result = await model.generateContent(prompt);
+            const analysis = await getAIAnalysis(prompt);
             const user = await client.users.fetch(userId);
-            await user.send(`🗞️ **Weekly AI Strategic Report**\n\n${result.response.text()}`);
+            await user.send(`🗞️ **Weekly Strategic Report**\n\n${analysis}`);
         } catch (e) { console.error("Weekly Report Error:", e.message); }
     }
 });
+
 
 // --- BOT EVENTS ---
 
@@ -170,12 +195,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
             }
 
-            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-            const prompt = `วิเคราะห์พอร์ตหุ้นจากราคาและข่าวล่าสุด: ${JSON.stringify(portfolio)}
-            ช่วยวิเคราะห์ภาพรวมตลาด, ข่าวที่ส่งผลต่อหุ้นรายตัว, และแนะนำ Action Plan แบบมืออาชีพ (ภาษาไทย)`;
+            const prompt = `วิเคราะห์พอร์ตหุ้น: ${JSON.stringify(portfolio)}
+            1. สรุปภาพรวมตลาดที่กระทบพอร์ต
+            2. วิเคราะห์ข่าวที่ส่งผลต่อหุ้นรายตัว
+            3. กำหนด Action Plan แยกรายตัวแบบสั้นๆ`;
             
-            const result = await model.generateContent(prompt);
-            const fullResponse = `🤖 **AI Strategic Analysis & Global News**\n\n${result.response.text()}`;
+            const analysis = await getAIAnalysis(prompt);
+            const fullResponse = `🤖 **AI Strategic Analysis**\n\n${analysis}`;
             
             await sendLongMessage(interaction, fullResponse);
 
@@ -211,11 +237,12 @@ client.on(Events.InteractionCreate, async interaction => {
             const news = await getStockNews(symbol);
             const change = ((q.price - q.previousClose) / q.previousClose * 100);
             
-            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-            const prompt = `หุ้น ${symbol} ราคา $${q.price} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%) ข่าวล่าสุด: ${news}. สรุปสั้นๆ ว่าน่าสนใจไหม (ภาษาไทย)`;
-            const result = await model.generateContent(prompt);
+            const prompt = `วิเคราะห์หุ้นรายตัว: ${symbol} ราคา $${q.price} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%) ข่าว: ${news}
+            สรุปสั้นๆ 1-2 ประโยคว่าน่าสนใจหรือไม่`;
+            
+            const analysis = await getAIAnalysis(prompt);
 
-            await interaction.editReply(`📈 **${symbol}**\n💰 ราคา: $${q.price.toFixed(2)} (${change >= 0 ? '🔼' : '🔽'} ${change.toFixed(2)}%)\n📰 สรุป AI: ${result.response.text()}`);
+            await interaction.editReply(`📈 **${symbol}**\n💰 ราคา: $${q.price.toFixed(2)} (${change >= 0 ? '🔼' : '🔽'} ${change.toFixed(2)}%)\n📰 สรุป AI: ${analysis}`);
         } catch (e) { await interaction.editReply(`❌ ไม่พบข้อมูลหุ้น ${symbol}`); }
 
     // --- ADD-STOCK ---
