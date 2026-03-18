@@ -192,6 +192,29 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             await interaction.editReply('❌ เกิดข้อผิดพลาด');
         }
+    } else if (interaction.commandName === 'update-stock') {
+        await interaction.deferReply();
+        const symbol = interaction.options.getString('symbol').toUpperCase();
+        const amount = interaction.options.getNumber('amount');
+        const avgPrice = interaction.options.getNumber('avg_price');
+        const userId = interaction.user.id;
+
+        try {
+            // ใช้ findOneAndUpdate แบบธรรมดาเพื่อทับข้อมูลเก่าไปเลย ไม่ต้องคำนวณบวกเพิ่ม
+            const result = await Watchlist.findOneAndUpdate(
+                { userId, symbol },
+                { amount, avgPrice },
+                { new: true }
+            );
+
+            if (result) {
+                await interaction.editReply(`🛠 **แก้ไขข้อมูล ${symbol} เรียบร้อย!**\n📦 ยอดใหม่: ${amount} หุ้น | ทุนเฉลี่ย: $${avgPrice}`);
+            } else {
+                await interaction.editReply(`⚠️ ไม่พบหุ้น ${symbol} ในพอร์ตของคุณครับ`);
+            }
+        } catch (error) {
+            await interaction.editReply('❌ เกิดข้อผิดพลาดในการอัปเดตข้อมูล');
+        }
     }
 });
 

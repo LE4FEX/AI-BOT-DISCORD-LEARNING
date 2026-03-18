@@ -35,6 +35,12 @@ const commands = [
     new SlashCommandBuilder()
         .setName('watchlist')
         .setDescription('ดูหุ้นทั้งหมดใน Watchlist ของคุณ'),
+    new SlashCommandBuilder()
+        .setName('update-stock')
+        .setDescription('แก้ไขข้อมูลหุ้นในพอร์ต (ใช้เมื่อกรอกผิด)')
+        .addStringOption(option => option.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true))
+        .addNumberOption(option => option.setName('amount').setDescription('จำนวนหุ้นที่ถูกต้องทั้งหมด').setRequired(true))
+        .addNumberOption(option => option.setName('avg_price').setDescription('ราคาต้นทุนเฉลี่ยที่ถูกต้อง').setRequired(true)),
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
