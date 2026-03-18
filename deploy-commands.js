@@ -41,6 +41,13 @@ const commands = [
         .addStringOption(option => option.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true))
         .addNumberOption(option => option.setName('amount').setDescription('จำนวนหุ้นที่ถูกต้องทั้งหมด').setRequired(true))
         .addNumberOption(option => option.setName('avg_price').setDescription('ราคาต้นทุนเฉลี่ยที่ถูกต้อง').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('history')
+        .setDescription('ดูประวัติการทำรายการ')
+        .addStringOption(option => option.setName('symbol').setDescription('ชื่อหุ้น (ไม่ใส่ = ดูทั้งหมด)').setRequired(false)),
+    new SlashCommandBuilder()
+        .setName('analyze-portfolio')
+        .setDescription('ให้ AI (Gemini) ช่วยวิเคราะห์พอร์ตการลงทุนของคุณอย่างละเอียด'),
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
