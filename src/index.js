@@ -106,16 +106,16 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.deferReply();
         const symbol = interaction.options.getString('symbol').toUpperCase();
         const amount = interaction.options.getNumber('amount');
-        const avgPrice = interaction.options.getNumber('avgprice');
+        const avgPrice = interaction.options.getNumber('avg_price');
         const userId = interaction.user.id;
         try {
-            const existing = await Watchlist.findOne({ userId, symbol });
-            if (existing) {
-                return await interaction.editReply(`⚠️ ${symbol} อยู่ใน Watchlist อยู่แล้วครับ`);
-            }
-            const newEntry = new Watchlist({ userId, symbol, amount, avgPrice });
-            await newEntry.save();
-            await interaction.editReply(`✅ เพิ่ม ${symbol} เข้า Watchlist แล้วครับ (จำนวน: ${amount}, ราคาเฉลี่ย: ${avgPrice} USD)`);
+            // อัปเดตข้อมูลถ้ามีอยู่แล้ว หรือสร้างใหม่ถ้ายังไม่มี (Upsert)
+            await Watchlist.findOneAndUpdate(
+                { userId, symbol },
+                { userId, symbol, amount, avgPrice },
+                { upsert: true }
+            );
+            await interaction.editReply(`✅ บันทึก **${symbol}** เรียบร้อย: ${amount} หุ้น ที่ราคา $${avgPrice}`);
         } catch (error) {
             console.error(error);
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
@@ -143,27 +143,34 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             const watchlists = await Watchlist.find({ userId });
             if (watchlists.length === 0) {
-                return await interaction.editReply('📭 Watchlist ของคุณว่างเปล่าครับ');
+                return await interaction.editReply('📭 พอร์ตของคุณว่างเปล่า');
             }
 
-            // 2. ใช้ Promise.all เพื่อดึงราคาหุ้นทุกตัวพร้อมกัน (เร็วขึ้นมาก!)
+            let totalProfit = 0;
             const results = await Promise.all(watchlists.map(async (entry) => {
-                const sym = entry.symbol;
                 try {
-                    const quote = await getStockPrice(sym);
-                    const currentPrice = parseFloat(quote.price.toFixed(2));
-                    const pnl = (currentPrice - entry.avgPrice) * entry.amount;
-                    const pnlStr = pnl >= 0 ? `🟢 +${pnl.toFixed(2)} USD` : `🔴 ${pnl.toFixed(2)} USD`;
-                    return `• **${quote.symbol}**: ${quote.price.toFixed(2)} ${quote.currency} | ถือ: ${entry.amount} หุ้น @ ${entry.avgPrice} USD | P&L: ${pnlStr}`;
+                    const quote = await getStockPrice(entry.symbol);
+                    const currentPrice = quote.price;
+                    const cost = entry.avgPrice * entry.amount;
+                    const currentValue = currentPrice * entry.amount;
+                    const profit = currentValue - cost;
+                    totalProfit += profit;
+
+                    const profitPercent = ((currentPrice - entry.avgPrice) / entry.avgPrice * 100).toFixed(2);
+                    const color = profit >= 0 ? '🟢' : '🔴';
+
+                    return `${color} **${entry.symbol}**: $${currentPrice.toFixed(2)} (${profitPercent}%)\n   └ กำไร: **$${profit.toFixed(2)}** (${entry.amount} หุ้น)`;
                 } catch (e) {
-                    return `• **${sym}**: ❌ ไม่พบข้อมูล`;
+                    return `• **${entry.symbol}**: ❌ ดึงข้อมูลไม่ได้`;
                 }
             }));
 
-            await interaction.editReply('📋 **Watchlist ของคุณ:**\n' + results.join('\n'));
+            const totalEmoji = totalProfit >= 0 ? '💰' : '📉';
+            const summary = `📊 **พอร์ตการลงทุนของคุณ**\n${results.join('\n')}\n\n${totalEmoji} **กำไร/ขาดทุนรวม: $${totalProfit.toFixed(2)}**`;
+            
+            await interaction.editReply(summary);
         } catch (error) {
-            console.error(error);
-            await interaction.editReply('❌ เกิดข้อผิดพลาดในการดึงข้อมูล');
+            await interaction.editReply('❌ เกิดข้อผิดพลาด');
         }
     }
 });

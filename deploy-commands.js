@@ -12,17 +12,17 @@ const commands = [
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('add-stock')
-        .setDescription('เพิ่มหุ้นเข้า Watchlist')
+        .setDescription('เพิ่มหุ้นเข้า Watchlist พร้อมราคาต้นทุน')
         .addStringOption(option => 
             option.setName('symbol')
-                .setDescription('ตัวย่อหุ้น (เช่น MSFT, NVDA)')
+                .setDescription('ชื่อย่อหุ้น (เช่น NVDA)')
                 .setRequired(true))
         .addNumberOption(option => 
             option.setName('amount')
                 .setDescription('จำนวนหุ้นที่ถือ')
                 .setRequired(true))
         .addNumberOption(option => 
-            option.setName('avgprice')
+            option.setName('avg_price')
                 .setDescription('ราคาเฉลี่ยที่ซื้อมา (USD)')
                 .setRequired(true)),
     new SlashCommandBuilder()
