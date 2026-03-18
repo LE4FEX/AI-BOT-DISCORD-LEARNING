@@ -10,16 +10,17 @@ const cheerio = require('cheerio');
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
 
-// Setup AI - สร้าง Instance ไว้สำหรับดึง Model ในภายหลัง
+// Setup AI - ใช้รุ่นล่าสุดที่เสถียรที่สุดในตอนนี้
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const MODEL_NAME = "gemini-2.0-flash"; 
 
-// HTTP Server for Render
+// HTTP Server for Render (Keep-alive)
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('AI Investment Bot is Active! 🚀'));
 app.listen(port, () => console.log(`Listening on port ${port}`));
 
-// Discord Client
+// Discord Client Setup
 const client = new Client({ 
     intents: [
         GatewayIntentBits.Guilds, 
@@ -28,7 +29,27 @@ const client = new Client({
     ] 
 });
 
-// ฟังก์ชันดึงพาดหัวข่าวล่าสุดจาก Google News
+// --- UTILITY FUNCTIONS ---
+
+// 1. ฟังก์ชันส่งข้อความยาวๆ โดยการแบ่งเป็นส่วนๆ (ป้องกัน Discord 2000 Char Limit)
+async function sendLongMessage(interaction, text) {
+    const maxLength = 1900;
+    if (text.length <= maxLength) {
+        return await interaction.editReply(text);
+    }
+
+    const chunks = [];
+    for (let i = 0; i < text.length; i += maxLength) {
+        chunks.push(text.substring(i, i + maxLength));
+    }
+
+    await interaction.editReply(chunks[0]);
+    for (let i = 1; i < chunks.length; i++) {
+        await interaction.followUp(chunks[i]);
+    }
+}
+
+// 2. ฟังก์ชันดึงพาดหัวข่าวล่าสุดจาก Google News
 async function getStockNews(symbol) {
     try {
         const response = await axios.get(`https://www.google.com/search?q=${symbol}+stock+news&tbm=nws`, {
@@ -37,15 +58,15 @@ async function getStockNews(symbol) {
         const $ = cheerio.load(response.data);
         let news = [];
         $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => {
-            if (i < 3) news.push($(el).text()); // เอาแค่ 3 ข่าวล่าสุด
+            if (i < 3) news.push($(el).text());
         });
-        return news.join(' | ');
+        return news.length > 0 ? news.join(' | ') : "No recent news found";
     } catch (e) {
-        return "No recent news found";
+        return "News unavailable at the moment";
     }
 }
 
-// ฟังก์ชันดึงราคาหุ้น
+// 3. ฟังก์ชันดึงราคาหุ้นจาก Yahoo Finance
 async function getStockPrice(symbol) {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
     try {
@@ -64,9 +85,9 @@ async function getStockPrice(symbol) {
     } catch (error) { throw error; }
 }
 
-// ==========================================
-// 🚨 ระบบเฝ้าระวังตลาดและแจ้งเตือน AI อัตโนมัติ (Efficiency Insights)
-// ==========================================
+// --- SCHEDULED JOBS (CRON) ---
+
+// 🚨 แจ้งเตือนเมื่อราคาขยับแรง ทุก 30 นาที (จันทร์-ศุกร์)
 cron.schedule('*/30 * * * 1-5', async () => {
     console.log("🔍 AI กำลังตรวจสอบความเคลื่อนไหวของตลาด...");
     const allStocks = await Watchlist.find({});
@@ -77,13 +98,12 @@ cron.schedule('*/30 * * * 1-5', async () => {
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
 
             if (Math.abs(change) >= 3) {
-                // อัปเดตเป็น 2.5-flash เพื่อแก้ 404
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-                const news = await getStockNews(item.symbol); // ดึงข่าวมาประกอบด้วยเลย
+                const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+                const news = await getStockNews(item.symbol);
                 
                 const prompt = `หุ้น ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
                 ข่าวล่าสุด: ${news}
-                วิเคราะห์เชิงลึก: จังหวะนี้ควร "ขายทำกำไร", "DCA เพิ่ม", หรือ "ถือ" เพราะอะไร? (วิเคราะห์จากราคาและข่าว ตอบภาษาไทยสั้นๆ)`;
+                วิเคราะห์เชิงลึกสั้นๆ: ควร "ขาย", "DCA", หรือ "ถือ"? ตอบภาษาไทยสั้นๆ`;
                 
                 const result = await model.generateContent(prompt);
                 const user = await client.users.fetch(item.userId);
@@ -93,9 +113,7 @@ cron.schedule('*/30 * * * 1-5', async () => {
     }
 });
 
-// ==========================================
-// 📅 ระบบสรุปพอร์ตรายสัปดาห์ (ทุกวันเสาร์ 10:00 น.)
-// ==========================================
+// 📅 สรุปพอร์ตรายสัปดาห์ (ทุกวันเสาร์ 10:00 น.)
 cron.schedule('0 10 * * 6', async () => {
     const users = await Watchlist.distinct('userId');
     for (const userId of users) {
@@ -107,12 +125,9 @@ cron.schedule('0 10 * * 6', async () => {
                 data.push({ symbol: s.symbol, cost: s.avgPrice, current: q.price, amount: s.amount });
             }
 
-            // อัปเดตเป็น 2.5-flash
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-            const prompt = `วิเคราะห์พอร์ตรายสัปดาห์ (Efficiency Insights): ${JSON.stringify(data)}
-            1. ความเสี่ยงการกระจุกตัว (Diversification)
-            2. แนะนำการ Rebalance (โยกเงิน)
-            3. กลยุทธ์เข้าซื้อ/ขายในสัปดาห์หน้าเพื่อให้พอร์ตโตดีที่สุด`;
+            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+            const prompt = `วิเคราะห์พอร์ตรายสัปดาห์: ${JSON.stringify(data)}
+            เน้นการ Rebalance และกลยุทธ์สัปดาห์หน้าเพื่อให้พอร์ตโตดีที่สุด (ภาษาไทย)`;
             
             const result = await model.generateContent(prompt);
             const user = await client.users.fetch(userId);
@@ -121,9 +136,10 @@ cron.schedule('0 10 * * 6', async () => {
     }
 });
 
+// --- BOT EVENTS ---
+
 client.once('ready', async () => {
     console.log(`🤖 AI Bot Ready: ${client.user.tag}`);
-    
     try {
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ DB Connected');
@@ -135,7 +151,7 @@ client.once('ready', async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- ANALYZE PORTFOLIO (วิเคราะห์เชิงลึกรายตัว + ข่าวต่างประเทศ) ---
+    // --- ANALYZE PORTFOLIO (วิเคราะห์เชิงลึก + ข่าว) ---
     if (interaction.commandName === 'analyze-portfolio') {
         await interaction.deferReply();
         try {
@@ -145,35 +161,30 @@ client.on(Events.InteractionCreate, async interaction => {
             let portfolio = [];
             for (const s of stocks) {
                 const q = await getStockPrice(s.symbol);
-                const news = await getStockNews(s.symbol); // 🚀 ระบบดึงข่าวทำงานตรงนี้
-                
+                const news = await getStockNews(s.symbol);
                 portfolio.push({ 
                     symbol: s.symbol, cost: s.avgPrice, current: q.price, 
                     profit: ((q.price - s.avgPrice) * s.amount).toFixed(2),
                     amount: s.amount,
-                    latestNews: news // 🚀 แนบข่าวเข้าไปในข้อมูลพอร์ต
+                    latestNews: news
                 });
             }
 
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-            
-            const prompt = `ในฐานะผู้เชี่ยวชาญด้านหุ้นต่างประเทศ ช่วยวิเคราะห์พอร์ตนี้โดยพิจารณาจาก "ราคา" และ "ข่าวล่าสุด (latestNews)":
-            ${JSON.stringify(portfolio)}
-            
-            รูปแบบการตอบ:
-            1. สรุปภาพรวมตลาดตามข่าวปัจจุบัน (Global Sentiment)
-            2. วิเคราะห์หุ้นรายตัวในพอร์ตว่าข่าวล่าสุดส่งผลดีหรือเสียอย่างไร
-            3. แนะนำกลยุทธ์ (Actionable Plan) ตามกระแสข่าว ควรซื้อเพิ่มหรือขายทำกำไร
-            ตอบเป็นภาษาไทยแบบมืออาชีพ อ่านง่าย และชัดเจน`;
+            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+            const prompt = `วิเคราะห์พอร์ตหุ้นจากราคาและข่าวล่าสุด: ${JSON.stringify(portfolio)}
+            ช่วยวิเคราะห์ภาพรวมตลาด, ข่าวที่ส่งผลต่อหุ้นรายตัว, และแนะนำ Action Plan แบบมืออาชีพ (ภาษาไทย)`;
             
             const result = await model.generateContent(prompt);
-            await interaction.editReply(`🤖 **AI Global News & Strategic Analysis**\n\n${result.response.text().substring(0, 1900)}`);
+            const fullResponse = `🤖 **AI Strategic Analysis & Global News**\n\n${result.response.text()}`;
+            
+            await sendLongMessage(interaction, fullResponse);
+
         } catch (e) { 
             console.error("AI Error:", e);
-            await interaction.editReply('❌ ระบบวิเคราะห์ขัดข้อง กรุณาลองใหม่อีกครั้ง');
+            await interaction.editReply('❌ AI ขัดข้อง: กรุณาลองใหม่อีกครั้ง');
         }
 
-    // --- WATCHLIST (ดูสถานะปัจจุบัน) ---
+    // --- WATCHLIST ---
     } else if (interaction.commandName === 'watchlist') {
         await interaction.deferReply();
         try {
@@ -191,7 +202,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply(`📊 **Portfolio Overview**\n${results.join('\n')}\n\n💰 **รวมกำไร/ขาดทุนทั้งหมด: $${totalProfit.toFixed(2)}**`);
         } catch (e) { await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูล"); }
 
-    // --- ADD-STOCK (บันทึก DCA) ---
+    // --- ADD-STOCK ---
     } else if (interaction.commandName === 'add-stock') {
         await interaction.deferReply();
         const symbol = interaction.options.getString('symbol').toUpperCase();
