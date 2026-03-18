@@ -109,13 +109,24 @@ client.on(Events.InteractionCreate, async interaction => {
         const avgPrice = interaction.options.getNumber('avg_price');
         const userId = interaction.user.id;
         try {
-            // อัปเดตข้อมูลถ้ามีอยู่แล้ว หรือสร้างใหม่ถ้ายังไม่มี (Upsert)
-            await Watchlist.findOneAndUpdate(
-                { userId, symbol },
-                { userId, symbol, amount, avgPrice },
-                { upsert: true }
-            );
-            await interaction.editReply(`✅ บันทึก **${symbol}** เรียบร้อย: ${amount} หุ้น ที่ราคา $${avgPrice}`);
+            const existing = await Watchlist.findOne({ userId, symbol });
+            if (existing) {
+                // สูตรคำนวณค่าเฉลี่ยใหม่
+                const newTotalAmount = existing.amount + amount;
+                const newTotalCost = (existing.amount * existing.avgPrice) + (amount * avgPrice);
+                const newAvgPrice = newTotalCost / newTotalAmount;
+
+                existing.amount = newTotalAmount;
+                existing.avgPrice = newAvgPrice;
+                await existing.save();
+                
+                await interaction.editReply(`✅ ซื้อเพิ่มเรียบร้อย! ตอนนี้ถือ **${symbol}** รวม ${newTotalAmount.toFixed(4)} หุ้น (ทุนเฉลี่ย $${newAvgPrice.toFixed(2)})`);
+            } else {
+                // ถ้ายังไม่มีหุ้นนี้ ก็บันทึกปกติ
+                const newEntry = new Watchlist({ userId, symbol, amount, avgPrice });
+                await newEntry.save();
+                await interaction.editReply(`✅ เพิ่ม **${symbol}** เข้าพอร์ตเรียบร้อยครับ`);
+            }
         } catch (error) {
             console.error(error);
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล');
