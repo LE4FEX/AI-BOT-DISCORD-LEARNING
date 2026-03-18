@@ -60,7 +60,10 @@ cron.schedule('*/30 * * * 1-5', async () => {
 
             // แจ้งเตือนเมื่อราคาขยับแรง (> 3%)
             if (Math.abs(change) >= 3) {
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const model = genAI.getGenerativeModel({ 
+                model: "gemini-1.5-flash",
+                apiVersion: 'v1' // บังคับให้ใช้ v1 แทน v1beta ที่มันมีปัญหา
+            });
                 const prompt = `หุ้น ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
                 วิเคราะห์เชิงลึก: จังหวะนี้ควร "ขายทำกำไร", "DCA เพิ่ม", หรือ "ถือ" เพราะอะไร? (ตอบภาษาไทยสั้นๆ)`;
                 
