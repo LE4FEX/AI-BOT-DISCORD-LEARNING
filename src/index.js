@@ -123,7 +123,10 @@ client.on(Events.InteractionCreate, async interaction => {
             const prompt = `วิเคราะห์เชิงลึกหุ้นรายตัวในพอร์ตนี้ และแนะนำจุดเข้าซื้อ/ขาย/DCA ที่ดีที่สุด: ${JSON.stringify(portfolio)} ตอบภาษาไทย`;
             const result = await model.generateContent(prompt);
             await interaction.editReply(`🤖 **AI Strategic Analysis**\n\n${result.response.text().substring(0, 1900)}`);
-        } catch (e) { await interaction.editReply('❌ AI ขัดข้องชั่วคราว'); }
+        } catch (e) {
+                        console.error("AI Error Detail:", e); // ดู Error จริงใน Terminal
+                        await interaction.editReply('❌ AI ขัดข้อง: อาจเกิดจาก Quota เต็ม หรือ Key ไม่ถูกต้องครับ');
+                    }
 
     // --- WATCHLIST (Check Status) ---
     } else if (interaction.commandName === 'watchlist') {
