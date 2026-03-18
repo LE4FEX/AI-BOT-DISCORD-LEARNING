@@ -102,9 +102,26 @@ cron.schedule('0 10 * * 6', async () => {
     }
 });
 
-client.once('ready', () => {
+client.once('ready', async () => { // เพิ่ม async ตรงนี้
     console.log(`🤖 AI Bot Ready: ${client.user.tag}`);
-    mongoose.connect(process.env.MONGODB_URI).then(() => console.log('✅ DB Connected'));
+    
+    // เชื่อมต่อ Database
+    try {
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('✅ DB Connected');
+    } catch (err) {
+        console.error('❌ DB Connection Error:', err);
+    }
+
+    // 🔍 ตรวจสอบรายชื่อ Model ที่ Key นี้ใช้ได้จริง (เพื่อแก้ 404)
+    try {
+        const result = await genAI.listModels();
+        console.log("--- รายชื่อ Model ที่คุณใช้ได้ ---");
+        result.models.forEach(m => console.log(m.name));
+        console.log("------------------------------");
+    } catch (error) {
+        console.error("❌ ไม่สามารถดึงรายชื่อ Model ได้:", error.message);
+    }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
