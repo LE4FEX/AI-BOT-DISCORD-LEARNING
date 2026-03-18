@@ -134,28 +134,33 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการลบข้อมูล');
         }
     } else if (interaction.commandName === 'watchlist') {
-        await interaction.deferReply();
-        const userId = interaction.user.id;
+        // 1. ต้องสั่ง deferReply ทันทีที่รับคำสั่ง!
+        await interaction.deferReply(); 
         
+        const userId = interaction.user.id;
         try {
             const watchlists = await Watchlist.find({ userId });
             if (watchlists.length === 0) {
                 return await interaction.editReply('📭 Watchlist ของคุณว่างเปล่าครับ');
             }
 
+            // 2. ใช้ Promise.all เพื่อดึงราคาหุ้นทุกตัวพร้อมกัน (เร็วขึ้นมาก!)
             const results = await Promise.all(watchlists.map(async (entry) => {
+                const sym = entry.symbol;
                 try {
-                    const quote = await getStockPrice(entry.symbol);
-                    const change = ((quote.price - quote.previousClose) / quote.previousClose * 100).toFixed(2);
+                    const quote = await getStockPrice(sym);
+                    const price = quote.price.toFixed(2);
+                    const change = ((parseFloat(price) - quote.previousClose) / quote.previousClose * 100).toFixed(2);
                     const color = change >= 0 ? '🟢' : '🔴';
-                    return `• ${quote.symbol}: ${quote.price.toFixed(2)} ${quote.currency} ${color} ${change}%`;
+                    return `• **${quote.symbol}**: ${price} ${quote.currency} ${color} ${change}%`;
                 } catch (e) {
-                    return `• ${entry.symbol}: ❌ ไม่พบข้อมูล`;
+                    return `• **${sym}**: ❌ ไม่พบข้อมูล`;
                 }
             }));
 
             await interaction.editReply('📋 **Watchlist ของคุณ:**\n' + results.join('\n'));
         } catch (error) {
+            console.error(error);
             await interaction.editReply('❌ เกิดข้อผิดพลาดในการดึงข้อมูล');
         }
     }
