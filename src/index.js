@@ -48,7 +48,10 @@ const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่�
 async function getMarketSentiment() {
     try {
         const stockRes = await axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': 'https://www.cnn.com/markets/fear-and-greed'
+            }
         });
         const cryptoRes = await axios.get('https://api.alternative.me/fng/?limit=1');
         return {
@@ -62,7 +65,7 @@ async function getMarketSentiment() {
 async function getStockProfile(symbol) {
     try {
         const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=assetProfile`;
-        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } });
         return res.data.quoteSummary.result[0].assetProfile;
     } catch (e) { return null; }
 }
@@ -71,7 +74,7 @@ async function getStockProfile(symbol) {
 async function getUpcomingEarnings(symbol) {
     try {
         const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=calendarEvents`;
-        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } });
         const events = res.data.quoteSummary.result[0].calendarEvents;
         return events && events.earnings ? events.earnings.earningsDate[0].fmt : null;
     } catch (e) { return null; }
@@ -134,7 +137,7 @@ async function sendEmbedResponse(interaction, title, description, color = 0x0099
 async function getStockNews(symbol) {
     try {
         const response = await axios.get(`https://www.google.com/search?q=${symbol}+stock+news&tbm=nws`, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' }
         });
         const $ = cheerio.load(response.data);
         let news = [];
@@ -147,7 +150,7 @@ async function getStockNews(symbol) {
 async function getMarketTrending() {
     try {
         const response = await axios.get(`https://www.google.com/search?q=top+trending+stocks+today+usa+market&tbm=nws`, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' }
         });
         const $ = cheerio.load(response.data);
         let trends = [];
@@ -160,7 +163,7 @@ async function getMarketTrending() {
 async function getStockPrice(symbol) {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
     try {
-        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } });
         const result = response.data.chart.result[0].meta;
         return { price: result.regularMarketPrice, previousClose: result.previousClose, symbol: result.symbol };
     } catch (error) { throw error; }
