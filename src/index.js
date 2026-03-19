@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const cron = require('node-cron');
@@ -31,19 +31,18 @@ const MARKET_LEADERS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'META', 'GOOGL', 'AMZN',
 
 // Setup AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.5-flash"; 
+const MODEL_NAME = "gemini-2.0-flash"; 
 
 // กำหนด System Instruction พื้นฐาน
 const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
 บุคลิกของคุณ: สุภาพ, เป็นกันเองแต่เป็นมืออาชีพ, มั่นใจ และให้เกียรติผู้ใช้งาน
 หน้าที่ของคุณ:
 1. วิเคราะห์หุ้นและตอบคำถามเกี่ยวกับการลงทุน หุ้น ตลาดทุน และเศรษฐกิจ อย่างแม่นยำและเข้าใจง่าย
-2. ให้ข้อมูลเชิงลึกที่ช่วยในการตัดสินใจ โดยอ้างอิงจากข้อมูลตลาดล่าสุดที่มี
-3. สำหรับการวิเคราะห์พอร์ตหรือหุ้นรายตัว ให้ใช้โครงสร้าง: [บทสรุปและสภาวะตลาด] -> [คำแนะนำ/Action Plan] -> [ปัจจัยความเสี่ยงที่ควรระวัง]
-4. ใช้คำลงท้ายที่สุภาพ (เช่น ครับ/ค่ะ) และเริ่มต้นบทสนทนาด้วยการทักทายที่เหมาะสม`;
+2. ให้ข้อมูลเชิงลึกที่ช่วยในการตัดสินใจ โดยอ้างอิงจากข้อมูลล่าสุด
+3. ใช้โครงสร้างการตอบ: [บทสรุปและสภาวะตลาด] -> [คำแนะนำ/Action Plan] -> [ความเสี่ยง]
+4. ใช้คำลงท้ายที่สุภาพ (ครับ/ค่ะ) และทักทายอย่างสั้นและกระชับที่สุดเพื่อไม่ให้บังส่วนเนื้อหาสำคัญ`;
 
 // --- UTILITY FUNCTIONS ---
-
 
 // 1. ฟังก์ชันเรียกใช้ AI แบบกำหนดสไตล์ (Global)
 async function getAIAnalysis(prompt, specializedInstruction = null) {
@@ -60,21 +59,40 @@ async function getAIAnalysis(prompt, specializedInstruction = null) {
     }
 }
 
-// 2. ฟังก์ชันส่งข้อความยาวๆ โดยการแบ่งเป็นส่วนๆ (ป้องกัน Limit 2000 ตัวอักษร)
-async function sendLongMessage(interaction, text) {
-    const maxLength = 1900;
-    if (text.length <= maxLength) {
-        return await interaction.editReply(text);
+// 2. ฟังก์ชันส่ง Embed แบบจัดการข้อความยาว
+async function sendEmbedResponse(interaction, title, description, color = 0x0099FF) {
+    const maxLength = 4000; // Discord Embed Description limit is 4096
+
+    if (description.length <= maxLength) {
+        const embed = new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(description)
+            .setColor(color)
+            .setTimestamp();
+        return await interaction.editReply({ embeds: [embed] });
     }
+
+    // กรณีข้อความยาวเกิน limit ของ Embed
     const chunks = [];
-    for (let i = 0; i < text.length; i += maxLength) {
-        chunks.push(text.substring(i, i + maxLength));
+    for (let i = 0; i < description.length; i += maxLength) {
+        chunks.push(description.substring(i, i + maxLength));
     }
-    await interaction.editReply(chunks[0]);
+
+    const firstEmbed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(chunks[0])
+        .setColor(color);
+
+    await interaction.editReply({ embeds: [firstEmbed] });
+
     for (let i = 1; i < chunks.length; i++) {
-        await interaction.followUp(chunks[i]);
+        const nextEmbed = new EmbedBuilder()
+            .setDescription(chunks[i])
+            .setColor(color);
+        await interaction.followUp({ embeds: [nextEmbed] });
     }
 }
+
 
 // 3. ฟังก์ชันดึงข่าวพาดหัวจาก Google News
 async function getStockNews(symbol) {
@@ -170,16 +188,16 @@ client.on(Events.InteractionCreate, async interaction => {
             portfolio.push({ symbol: s.symbol, profit: (q.price - s.avgPrice).toFixed(2), news: n });
         }
         const analysis = await getAIAnalysis(`วิเคราะห์พอร์ต: ${JSON.stringify(portfolio)} เน้นสภาวะตลาดและ Action Plan`);
-        await sendLongMessage(interaction, `🤖 **AI Strategic Analysis**\n\n${analysis}`);
+        await sendEmbedResponse(interaction, "🤖 AI Strategic Analysis", analysis, 0x00FF00);
 
     // 2. ASK (สุภาพและข้อมูลสด)
     } else if (interaction.commandName === 'ask') {
         await interaction.deferReply();
         const question = interaction.options.getString('question');
         const market = await getMarketTrending();
-        const analystInstruction = `คุณคือ 'Senior Wealth Advisor' ที่ให้คำแนะนำอย่างรอบคอบและสุภาพ ข้อมูลตลาดวันนี้: ${market} กรุณาตอบคำถามโดยเน้นความถูกต้องและให้มุมมองที่รอบด้านเพื่อประโยชน์สูงสุดของผู้ลงทุน`;
+        const analystInstruction = `คุณคือ 'Senior Wealth Advisor' ที่ให้คำแนะนำอย่างรอบคอบและสุภาพ ข้อมูลตลาดวันนี้: ${market} กรุณาตอบคำถามโดยเน้นความถูกต้องและให้มุมมองที่รอบด้านเพื่อประโยชน์สูงสุดของผู้ลงทุน และทักทายอย่างสั้นที่สุด`;
         const analysis = await getAIAnalysis(`คำถามนักลงทุน: "${question}" ช่วยวิเคราะห์และให้คำตอบตามข้อมูลล่าสุด`, analystInstruction);
-        await sendLongMessage(interaction, `💬 **Investor Q&A**\n**Q:** ${question}\n\n${analysis}`);
+        await sendEmbedResponse(interaction, `💬 Investor Q&A: ${question.substring(0, 100)}`, analysis);
 
     // 3. WATCHLIST
     } else if (interaction.commandName === 'watchlist') {
@@ -191,7 +209,8 @@ client.on(Events.InteractionCreate, async interaction => {
             const p = (q.price - s.avgPrice) * s.amount; total += p;
             res.push(`${p >= 0 ? '🟢' : '🔴'} **${s.symbol}**: $${q.price.toFixed(2)} (กำไร: $${p.toFixed(2)})`);
         }
-        await interaction.editReply(`📊 **Overview**\n${res.join('\n')}\n💰 **Total P/L: $${total.toFixed(2)}**`);
+        const description = `📊 **Overview**\n${res.join('\n')}\n\n💰 **Total P/L: $${total.toFixed(2)}**`;
+        await sendEmbedResponse(interaction, "My Watchlist", description, 0xFFA500);
 
     // 4. STOCK (รายตัว)
     } else if (interaction.commandName === 'stock') {
@@ -201,7 +220,7 @@ client.on(Events.InteractionCreate, async interaction => {
             const q = await getStockPrice(sym);
             const n = await getStockNews(sym);
             const analysis = await getAIAnalysis(`หุ้น ${sym} ราคา $${q.price} ข่าว: ${n} วิเคราะห์ความน่าสนใจสั้นๆ`);
-            await interaction.editReply(`📈 **${sym}**: $${q.price.toFixed(2)}\n📰 AI วิเคราะห์: ${analysis}`);
+            await sendEmbedResponse(interaction, `📈 Stock Analysis: ${sym}`, `**Current Price:** $${q.price.toFixed(2)}\n\n${analysis}`);
         } catch (e) { await interaction.editReply("❌ ไม่พบข้อมูลหุ้น"); }
 
     // 5. DISCOVER
@@ -209,7 +228,7 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.deferReply();
         const market = await getMarketTrending();
         const analysis = await getAIAnalysis(`จากข่าวตลาดวันนี้: ${market} แนะนำหุ้นที่น่าจับตาที่สุด 2 ตัวพร้อมเหตุผลเชิงกลยุทธ์`);
-        await sendLongMessage(interaction, `🔎 **AI Discovery**\n\n${analysis}`);
+        await sendEmbedResponse(interaction, "🔎 AI Discovery", analysis, 0x9B59B6);
 
     // 6. ADD / REMOVE / UPDATE / HISTORY
     } else if (interaction.commandName === 'add-stock') {
