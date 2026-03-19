@@ -483,8 +483,38 @@ client.on(Events.InteractionCreate, async interaction => {
     } else if (interaction.commandName === 'remove-stock') {
         await interaction.deferReply();
         const s = interaction.options.getString('symbol').toUpperCase();
-        await Watchlist.deleteOne({ userId: interaction.user.id, symbol: s });
-        await interaction.editReply(`✅ ลบหุ้น **${s}** ออกแล้ว`);
+        
+        // Find the stock in the watchlist to get the amount
+        const stockToRemove = await Watchlist.findOne({ userId: interaction.user.id, symbol: s });
+        if (!stockToRemove) {
+            return await interaction.editReply(`❌ ไม่พบหุ้น **${s}** ในพอร์ตของคุณ`);
+        }
+
+        try {
+            // Get current price to record the transaction accurately
+            const quote = await getStockPrice(s);
+            const salePrice = quote.price;
+
+            // Create a SELL transaction
+            await Transaction.create({ 
+                userId: interaction.user.id, 
+                symbol: s, 
+                type: 'SELL', 
+                amount: stockToRemove.amount, // Record the sale of the entire amount
+                price: salePrice 
+            });
+
+            // Now, delete the stock from the watchlist
+            await Watchlist.deleteOne({ userId: interaction.user.id, symbol: s });
+            await interaction.editReply(`✅ บันทึกการขายและลบหุ้น **${s}** ออกจากพอร์ตเรียบร้อยแล้ว`);
+
+        } catch (e) {
+            console.error("Error during remove-stock:", e);
+            await interaction.editReply("⚠️ เกิดข้อผิดพลาดในการลบหุ้น แต่ได้ลบออกจาก Watchlist แล้ว (ประวัติการขายอาจไม่ถูกบันทึก)");
+            // As a fallback, still try to delete it
+            await Watchlist.deleteOne({ userId: interaction.user.id, symbol: s });
+        }
+
 
     } else if (interaction.commandName === 'history') {
         await interaction.deferReply();
@@ -497,13 +527,16 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const logs = await Transaction.find(query).sort({ date: -1 }).limit(25);
         
-        const text = logs.map(l => {
-            const date = new Date(l.date).toLocaleDateString('en-CA'); // YYYY-MM-DD format
-            return `[${date}] **${l.type}** ${l.symbol} | ${l.amount} @ $${l.price.toFixed(2)}`;
-        }).join('\n');
+        const text = logs.length > 0 
+            ? logs.map(l => {
+                const date = new Date(l.date).toLocaleDateString('en-CA'); // YYYY-MM-DD format
+                const emoji = l.type === 'BUY' ? ' വാങ്ങുക ' : 'ވިއްކާ'; // Using less common characters for emoji placeholders
+                return `\`[${date}]\` ${emoji} **${l.symbol}**: ${l.amount} หุ้น @ $${l.price.toFixed(2)}`;
+            }).join('\n')
+            : 'ไม่พบประวัติการทำรายการ';
 
-        const title = symbol ? `📜 Transaction History: ${symbol}` : '📜 Recent History';
-        await interaction.editReply(`${title}\n\n${text || 'No transactions found.'}`);
+        const title = symbol ? `📜 ประวัติการทำรายการ: ${symbol}` : '📜 ประวัติการทำรายการล่าสุด';
+        await sendEmbedResponse(interaction, title, text.replace(/ വാങ്ങുക /g, '🟢').replace(/ވިއްކާ/g, '🔴'), 0x7289DA);
     }
 });
 
