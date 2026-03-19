@@ -58,6 +58,12 @@ const commands = [
     new SlashCommandBuilder()
         .setName('discover')
         .setDescription('ค้นหาหุ้นที่น่าสนใจและมีโอกาสทำกำไรในขณะนี้'),
+    new SlashCommandBuilder()
+        .setName('sentiment')
+        .setDescription('เช็คสภาวะตลาด (Fear & Greed Index) ทั้งหุ้นและคริปโต'),
+    new SlashCommandBuilder()
+        .setName('analyze-diversification')
+        .setDescription('วิเคราะห์การกระจายความเสี่ยงของพอร์ตคุณตามกลุ่มอุตสาหกรรม (Sectors)'),
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
