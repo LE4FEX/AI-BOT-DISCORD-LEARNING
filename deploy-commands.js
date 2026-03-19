@@ -27,26 +27,23 @@ const commands = [
 
     new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นทั้งหมดใน Watchlist'),
     
-    // จุดที่แก้ไข: เติม Description ให้ symbol
     new SlashCommandBuilder()
         .setName('remove-stock')
         .setDescription('ลบหุ้นออก')
-        .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้นที่ต้องการลบ').setRequired(true)),
-    
-    // จุดที่แก้ไข: เติม Description ให้ symbol
+        .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true)),
+        
     new SlashCommandBuilder()
         .setName('history')
         .setDescription('ดูประวัติทำรายการ')
-        .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้นที่ต้องการดู (ไม่ใส่ = ดูทั้งหมด)')),
-    
+        .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้น (ไม่บังคับ)')),
+        
     new SlashCommandBuilder().setName('analyze-portfolio').setDescription('AI วิเคราะห์พอร์ตเชิงลึก'),
     
-    // จุดที่แก้ไข: เติม Description ให้ question
     new SlashCommandBuilder()
         .setName('ask')
         .setDescription('ถาม AI')
-        .addStringOption(o => o.setName('question').setDescription('คำถามที่คุณต้องการคำตอบ').setRequired(true)),
-    
+        .addStringOption(o => o.setName('question').setDescription('คำถามของคุณ').setRequired(true)),
+        
     new SlashCommandBuilder().setName('discover').setDescription('ค้นหาหุ้นน่าสนใจ'),
     new SlashCommandBuilder().setName('sentiment').setDescription('เช็คสภาวะตลาด'),
     new SlashCommandBuilder().setName('analyze-diversification').setDescription('วิเคราะห์การกระจายความเสี่ยง'),
