@@ -64,10 +64,35 @@ async function getMarketSentiment() {
 // 0.1 ฟังก์ชันดึงข้อมูลบริษัท (Sector/Industry)
 async function getStockProfile(symbol) {
     try {
+        // 1. ลองใช้ Search API ก่อน เพราะมักจะมีข้อมูล Sector เบื้องต้นและไม่ค่อยโดนบล็อก
+        const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${symbol}`;
+        const searchRes = await axios.get(searchUrl, { 
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } 
+        });
+        
+        const quote = searchRes.data.quotes.find(q => q.symbol.toUpperCase() === symbol.toUpperCase());
+        if (quote) {
+            if (quote.quoteType === 'CRYPTOCURRENCY' || quote.typeDisp === 'cryptocurrency') {
+                return { sector: 'Cryptocurrency' };
+            }
+            if (quote.sector) {
+                return { sector: quote.sector };
+            }
+        }
+
+        // 2. ลองใช้ v10 quoteSummary เป็นทางเลือกที่สอง
         const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=assetProfile`;
-        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } });
+        const res = await axios.get(url, { 
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' } 
+        });
         return res.data.quoteSummary.result[0].assetProfile;
-    } catch (e) { return null; }
+    } catch (e) { 
+        // 3. Fallback สำหรับ Crypto ที่ Search หาไม่เจอ
+        if (symbol.toUpperCase().includes('BTC') || symbol.toUpperCase().includes('ETH') || symbol.toUpperCase().endsWith('-USD')) {
+            return { sector: 'Cryptocurrency' };
+        }
+        return null; 
+    }
 }
 
 // 0.2 ฟังก์ชันดึงวันประกาศงบ (Earnings Date)
@@ -310,32 +335,40 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.deferReply();
         const stocks = await Watchlist.find({ userId: interaction.user.id });
         if (stocks.length === 0) return await interaction.editReply("📭 พอร์ตว่างเปล่าครับ");
-        
+
         let sectorAllocation = {};
+        let sectorStocks = {}; // เก็บรายชื่อหุ้นในแต่ละกลุ่ม
         let totalValue = 0;
-        
+
         for (const s of stocks) {
             try {
                 const q = await getStockPrice(s.symbol);
                 const profile = await getStockProfile(s.symbol);
-                const sector = profile ? profile.sector : "Unknown";
+                const sector = profile ? (profile.sector || "Unknown") : "Unknown";
                 const value = q.price * s.amount;
-                
+
                 sectorAllocation[sector] = (sectorAllocation[sector] || 0) + value;
+                if (!sectorStocks[sector]) sectorStocks[sector] = [];
+                sectorStocks[sector].push(s.symbol);
                 totalValue += value;
-            } catch (e) { continue; }
+            } catch (e) { 
+                console.error(`Error analyzing ${s.symbol}:`, e.message);
+                continue; 
+            }
         }
-        
+
+        if (totalValue === 0) return await interaction.editReply("❌ ไม่สามารถดึงข้อมูลราคาหรือกลุ่มอุตสาหกรรมมาวิเคราะห์ได้ในขณะนี้");
+
         let allocationText = [];
         for (const sector in sectorAllocation) {
             const percent = (sectorAllocation[sector] / totalValue * 100).toFixed(2);
-            allocationText.push(`- **${sector}:** ${percent}%`);
+            const symbols = sectorStocks[sector].join(', ');
+            allocationText.push(`- **${sector}:** ${percent}% (${symbols})`);
         }
-        
-        const analysis = await getAIAnalysis(`วิเคราะห์การกระจายความเสี่ยง: พอร์ตมีการถือครองตามกลุ่มดังนี้ ${JSON.stringify(sectorAllocation)} (สัดส่วนร้อยละ: ${allocationText.join(', ')}) ช่วยวิเคราะห์ว่ากระจายความเสี่ยงดีหรือยัง และควรปรับปรุงอย่างไร`);
-        const description = `📈 **Current Allocation:**\n${allocationText.join('\n')}\n\n🕵️ **AI Risk Analysis:**\n${analysis}`;
-        await sendEmbedResponse(interaction, "🧩 Portfolio Diversification Review", description, 0x3498DB);
 
+        const analysis = await getAIAnalysis(`วิเคราะห์การกระจายความเสี่ยง (Diversification): พอร์ตมีการถือครองตามกลุ่ม (Sector) ดังนี้ ${JSON.stringify(sectorAllocation)} และหุ้นในกลุ่มคือ ${JSON.stringify(sectorStocks)} ช่วยวิเคราะห์ว่ากระจายความเสี่ยงเหมาะสมไหม และมีข้อแนะนำอย่างไร`);
+        const description = `📈 **Current Sector Allocation:**\n${allocationText.join('\n')}\n\n🕵️ **AI Risk Analysis:**\n${analysis}`;
+        await sendEmbedResponse(interaction, "🧩 Portfolio Diversification Review", description, 0x3498DB);
     // 6. ADD / REMOVE / UPDATE / HISTORY
     } else if (interaction.commandName === 'add-stock') {
         await interaction.deferReply();
