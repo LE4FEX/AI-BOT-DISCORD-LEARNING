@@ -202,12 +202,28 @@ cron.schedule('*/30 * * * 1-5', async () => {
     for (const item of allStocks) {
         try {
             const quote = await getStockPrice(item.symbol);
+            const user = await client.users.fetch(item.userId);
+
+            // 1. ตรวจสอบ Stop Loss
+            if (item.stopLoss > 0 && quote.price <= item.stopLoss) {
+                const analysis = await getAIAnalysis(`หุ้น ${item.symbol} หลุดจุด Stop Loss ที่ $${item.stopLoss} (ราคาปัจจุบัน $${quote.price}) วิเคราะห์กลยุทธ์การขายด่วน!`);
+                await user.send(`⚠️ **STOP LOSS ALERT: ${item.symbol}**\nราคาปัจจุบัน: $${quote.price}\n${analysis}`);
+                continue;
+            }
+
+            // 2. ตรวจสอบ Target Price
+            if (item.targetPrice > 0 && quote.price >= item.targetPrice) {
+                const analysis = await getAIAnalysis(`หุ้น ${item.symbol} ถึงจุดขายทำกำไรที่ $${item.targetPrice} (ราคาปัจจุบัน $${quote.price}) แนะนำวิธีกระจายขายทำกำไร`);
+                await user.send(`🎯 **TARGET REACHED: ${item.symbol}**\nราคาปัจจุบัน: $${quote.price}\n${analysis}`);
+                continue;
+            }
+
+            // 3. Volatility Alert (เดิม)
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
             if (Math.abs(change) >= 3) {
                 const news = await getStockNews(item.symbol);
-                const analysis = await getAIAnalysis(`วิเคราะห์ด่วน: ${item.symbol} ขยับแรง ${change.toFixed(2)}% ข่าว: ${news} สรุป Action Plan สั้นๆ`);
-                const user = await client.users.fetch(item.userId);
-                await user.send(`📢 **AI Alert: ${item.symbol}**\n${analysis}`);
+                const analysis = await getAIAnalysis(`${item.symbol} ขยับแรง ${change.toFixed(2)}% ข่าว: ${news} สรุปสั้นๆ`);
+                await user.send(`📢 **Volatility Alert: ${item.symbol}**\n${analysis}`);
             }
         } catch (e) { console.error(e.message); }
     }
@@ -470,16 +486,22 @@ client.on(Events.InteractionCreate, async interaction => {
         const s = interaction.options.getString('symbol').toUpperCase();
         const a = interaction.options.getNumber('amount');
         const p = interaction.options.getNumber('avg_price');
+        const sl = interaction.options.getNumber('stop_loss') || 0;
+        const tp = interaction.options.getNumber('target_price') || 0;
+
         let stock = await Watchlist.findOne({ userId: interaction.user.id, symbol: s });
         if (stock) {
             stock.avgPrice = ((stock.amount * stock.avgPrice) + (a * p)) / (stock.amount + a);
-            stock.amount += a; await stock.save();
+            stock.amount += a;
+            if(sl > 0) stock.stopLoss = sl; // อัปเดต SL ถ้ามีการระบุใหม่
+            if(tp > 0) stock.targetPrice = tp; // อัปเดต TP ถ้ามีการระบุใหม่
+            await stock.save();
         } else {
-            await Watchlist.create({ userId: interaction.user.id, symbol: s, amount: a, avgPrice: p });
+            await Watchlist.create({ userId: interaction.user.id, symbol: s, amount: a, avgPrice: p, stopLoss: sl, targetPrice: tp });
         }
         await Transaction.create({ userId: interaction.user.id, symbol: s, type: 'BUY', amount: a, price: p });
-        await interaction.editReply(`✅ บันทึกหุ้น **${s}** เรียบร้อย!`);
-
+        await interaction.editReply(`✅ บันทึกหุ้น **${s}** เรียบร้อย! (SL: $${sl}, TP: $${tp})`);
+        //remove-stock จะบันทึกการขายก่อนลบออกจาก Watchlist เพื่อเก็บประวัติการทำรายการอย่างครบถ้วน
     } else if (interaction.commandName === 'remove-stock') {
         await interaction.deferReply();
         const s = interaction.options.getString('symbol').toUpperCase();
