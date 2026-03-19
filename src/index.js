@@ -34,13 +34,16 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const MODEL_NAME = "gemini-2.5-flash"; 
 
 // กำหนด System Instruction พื้นฐาน
-const systemInstruction = `คุณคือ 'AI Alpha' นักวิเคราะห์การลงทุนมืออาชีพ
+const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
+บุคลิกของคุณ: สุภาพ, เป็นกันเองแต่เป็นมืออาชีพ, มั่นใจ และให้เกียรติผู้ใช้งาน
 หน้าที่ของคุณ:
-1. วิเคราะห์หุ้นและตอบคำถามเกี่ยวกับการลงทุน หุ้น ตลาดทุน และเศรษฐกิจ อย่างแม่นยำและกระชับ
-2. สำหรับการวิเคราะห์พอร์ตหรือหุ้นรายตัว ให้ใช้โครงสร้าง: [สรุปสภาวะ] -> [Action Plan] -> [ความเสี่ยง]
-3. ตัดคำทักทายและคำฟุ่มเฟือยออกทั้งหมด ตอบเป็นภาษาไทยที่คมชัดและเป็นมืออาชีพ`;
+1. วิเคราะห์หุ้นและตอบคำถามเกี่ยวกับการลงทุน หุ้น ตลาดทุน และเศรษฐกิจ อย่างแม่นยำและเข้าใจง่าย
+2. ให้ข้อมูลเชิงลึกที่ช่วยในการตัดสินใจ โดยอ้างอิงจากข้อมูลตลาดล่าสุดที่มี
+3. สำหรับการวิเคราะห์พอร์ตหรือหุ้นรายตัว ให้ใช้โครงสร้าง: [บทสรุปและสภาวะตลาด] -> [คำแนะนำ/Action Plan] -> [ปัจจัยความเสี่ยงที่ควรระวัง]
+4. ใช้คำลงท้ายที่สุภาพ (เช่น ครับ/ค่ะ) และเริ่มต้นบทสนทนาด้วยการทักทายที่เหมาะสม`;
 
 // --- UTILITY FUNCTIONS ---
+
 
 // 1. ฟังก์ชันเรียกใช้ AI แบบกำหนดสไตล์ (Global)
 async function getAIAnalysis(prompt, specializedInstruction = null) {
@@ -169,13 +172,13 @@ client.on(Events.InteractionCreate, async interaction => {
         const analysis = await getAIAnalysis(`วิเคราะห์พอร์ต: ${JSON.stringify(portfolio)} เน้นสภาวะตลาดและ Action Plan`);
         await sendLongMessage(interaction, `🤖 **AI Strategic Analysis**\n\n${analysis}`);
 
-    // 2. ASK (แบบดุดันและข้อมูลสด)
+    // 2. ASK (สุภาพและข้อมูลสด)
     } else if (interaction.commandName === 'ask') {
         await interaction.deferReply();
         const question = interaction.options.getString('question');
         const market = await getMarketTrending();
-        const analystInstruction = `คุณคือ 'Expert Wall Street Analyst' ที่ตอบคำถามตรงไปตรงมา ดุดัน และไม่เกรงใจใคร ห้ามตอบเลี่ยงบาลี ข้อมูลวันนี้: ${market}`;
-        const analysis = await getAIAnalysis(`คำถามนักลงทุน: "${question}" ตอบให้ชัดเจน ฟันธงตามข้อมูล`, analystInstruction);
+        const analystInstruction = `คุณคือ 'Senior Wealth Advisor' ที่ให้คำแนะนำอย่างรอบคอบและสุภาพ ข้อมูลตลาดวันนี้: ${market} กรุณาตอบคำถามโดยเน้นความถูกต้องและให้มุมมองที่รอบด้านเพื่อประโยชน์สูงสุดของผู้ลงทุน`;
+        const analysis = await getAIAnalysis(`คำถามนักลงทุน: "${question}" ช่วยวิเคราะห์และให้คำตอบตามข้อมูลล่าสุด`, analystInstruction);
         await sendLongMessage(interaction, `💬 **Investor Q&A**\n**Q:** ${question}\n\n${analysis}`);
 
     // 3. WATCHLIST
