@@ -257,6 +257,101 @@ cron.schedule('0 8 * * 1-5', async () => {
     }
 });
 
+// Morning Brief (20:30 น. ก่อนตลาดสหรัฐเปิด)
+cron.schedule('30 20 * * 1-5', async () => {
+    console.log("🚀 Running Morning Brief Job...");
+    const userIds = await Watchlist.distinct('userId');
+
+    for (const id of userIds) {
+        try {
+            const stocks = await Watchlist.find({ userId: id });
+            if (stocks.length === 0) continue;
+
+            // ดึงข่าวของหุ้นทุกตัวในพอร์ตแบบ Parallel
+            const newsPromises = stocks.map(stock => 
+                getStockNews(stock.symbol).then(news => ({ symbol: stock.symbol, news }))
+            );
+            const newsResults = await Promise.all(newsPromises);
+
+            // สร้าง Prompt สำหรับ AI
+            const newsContext = newsResults.map(item => `${item.symbol}: ${item.news}`).join('\n');
+            const prompt = `นี่คือข่าวล่าสุดของหุ้นในพอร์ต:
+${newsContext}
+
+ช่วยสรุปเป็น "Morning Brief" ก่อนตลาดเปิด โดยวิเคราะห์ว่าหุ้นตัวไหนมีข่าวดีหรือข่าวร้ายที่น่าสนใจ และควรจับตาตัวไหนเป็นพิเศษในคืนนี้`;
+            
+            const summary = await getAIAnalysis(prompt);
+
+            const user = await client.users.fetch(id);
+            await user.send(`☕ **Your Morning Brief**\n\n${summary}`);
+            console.log(`✅ Morning Brief sent to user ${id}`);
+
+        } catch (e) {
+            console.error(`❌ Failed to send Morning Brief to user ${id}:`, e.message);
+        }
+    }
+});
+
+// Daily P/L Snapshot (04:30 น. สรุปยอดหลังตลาดปิด)
+cron.schedule('30 4 * * 2-6', async () => {
+    console.log("🚀 Running Daily P/L Snapshot Job...");
+    const userIds = await Watchlist.distinct('userId');
+
+    for (const id of userIds) {
+        try {
+            const stocks = await Watchlist.find({ userId: id });
+            if (stocks.length < 1) continue;
+
+            let totalValuePrevious = 0;
+            let totalValueCurrent = 0;
+            let stockChanges = [];
+
+            for (const stock of stocks) {
+                try {
+                    const quote = await getStockPrice(stock.symbol);
+                    if (!quote || !quote.price || !quote.previousClose) continue;
+
+                    totalValuePrevious += stock.amount * quote.previousClose;
+                    totalValueCurrent += stock.amount * quote.price;
+                    
+                    const dailyChange = (quote.price - quote.previousClose) * stock.amount;
+                    stockChanges.push({ symbol: stock.symbol, change: dailyChange });
+
+                } catch (e) {
+                    console.error(`Could not fetch price for ${stock.symbol} for user ${id}`);
+                    continue; // Skip this stock if price is unavailable
+                }
+            }
+            
+            if (totalValuePrevious === 0) continue; // Skip if no valid data
+
+            const totalPnl = totalValueCurrent - totalValuePrevious;
+            const totalPnlPercent = (totalPnl / totalValuePrevious) * 100;
+            const pnlStatus = totalPnl >= 0 ? "บวก" : "ลบ";
+            const pnlEmoji = totalPnl >= 0 ? "🟢" : "🔴";
+
+            // Sort stocks by their daily change
+            stockChanges.sort((a, b) => b.change - a.change);
+
+            const topPerformer = stockChanges[0];
+            const worstPerformer = stockChanges[stockChanges.length - 1];
+
+            let summary = `${pnlEmoji} วันนี้พอร์ตของคุณ${pnlStatus}ไป **$${Math.abs(totalPnl).toFixed(2)}** (${totalPnlPercent.toFixed(2)}%)\n`;
+            if (topPerformer) summary += `💪 ตัวที่แบกพอร์ต: **${topPerformer.symbol}** ($${topPerformer.change.toFixed(2)})\n`;
+            if (worstPerformer && worstPerformer.change < 0 && stockChanges.length > 1) {
+                summary += `😥 ตัวที่ถ่วงพอร์ต: **${worstPerformer.symbol}** ($${worstPerformer.change.toFixed(2)})`;
+            }
+
+            const user = await client.users.fetch(id);
+            await user.send(`**🗓️ Daily P/L Snapshot**\n${summary}`);
+            console.log(`✅ Daily P/L Snapshot sent to user ${id}`);
+
+        } catch (e) {
+            console.error(`❌ Failed to send Daily P/L to user ${id}:`, e.message);
+        }
+    }
+});
+
 // --- BOT EVENTS ---
 
 client.once('ready', async () => {
@@ -393,9 +488,22 @@ client.on(Events.InteractionCreate, async interaction => {
 
     } else if (interaction.commandName === 'history') {
         await interaction.deferReply();
-        const logs = await Transaction.find({ userId: interaction.user.id }).sort({ date: -1 }).limit(10);
-        const text = logs.map(l => `🔹 **${l.type}** ${l.symbol} | ${l.amount} หุ้น | $${l.price}`).join('\n');
-        await interaction.editReply(`📜 **ประวัติล่าสุด**\n${text || 'ไม่พบรายการ'}`);
+        const symbol = interaction.options.getString('symbol')?.toUpperCase();
+        
+        let query = { userId: interaction.user.id };
+        if (symbol) {
+            query.symbol = symbol;
+        }
+
+        const logs = await Transaction.find(query).sort({ date: -1 }).limit(25);
+        
+        const text = logs.map(l => {
+            const date = new Date(l.date).toLocaleDateString('en-CA'); // YYYY-MM-DD format
+            return `[${date}] **${l.type}** ${l.symbol} | ${l.amount} @ $${l.price.toFixed(2)}`;
+        }).join('\n');
+
+        const title = symbol ? `📜 Transaction History: ${symbol}` : '📜 Recent History';
+        await interaction.editReply(`${title}\n\n${text || 'No transactions found.'}`);
     }
 });
 
