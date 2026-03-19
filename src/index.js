@@ -5,6 +5,22 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const cron = require('node-cron');
 const axios = require('axios');
 const cheerio = require('cheerio');
+require('dotenv').config();
+
+// Setup Express for Render Port Binding
+const app = express();
+const port = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('AI Bot is running!'));
+app.listen(port, () => console.log(`🌍 Server is listening on port ${port}`));
+
+// Initialize Discord Client
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+    ]
+});
 
 // Models
 const Watchlist = require('./models/watchlist');
@@ -222,5 +238,4 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-const app = express(); app.get('/', (req, res) => res.send('OK')); app.listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
