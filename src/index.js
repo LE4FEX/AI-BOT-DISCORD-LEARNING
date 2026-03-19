@@ -13,74 +13,51 @@ const Transaction = require('./models/transaction');
 // รายชื่อหุ้นผู้นำตลาดสำหรับค้นหาโอกาส (Market Leaders / Trending)
 const MARKET_LEADERS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'META', 'GOOGL', 'AMZN', 'NFLX', 'AMD', 'COIN', 'BTC-USD'];
 
-// Setup AI - ใช้รุ่นล่าสุดที่เสถียรที่สุดในตอนนี้
+// Setup AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.5-flash"; // กลับไปใช้รุ่นที่ใช้งานได้ตามปกติเพื่อแก้ปัญหา 404
+const MODEL_NAME = "gemini-2.5-flash"; 
 
-// กำหนด System Instruction เพื่อควบคุมสไตล์การตอบ
+// กำหนด System Instruction พื้นฐาน
 const systemInstruction = `คุณคือ 'AI Alpha' นักวิเคราะห์การลงทุนมืออาชีพ
 หน้าที่ของคุณ:
 1. วิเคราะห์หุ้นและตอบคำถามเกี่ยวกับการลงทุน หุ้น ตลาดทุน และเศรษฐกิจ อย่างแม่นยำและกระชับ
-2. สำหรับการวิเคราะห์พอร์ตหรือหุ้นรายตัว ให้ใช้โครงสร้าง: [สรุปสภาวะ] -> [Action Plan] -> [ความเสี่ยง] (ถ้าเหมาะสม)
-3. สำหรับคำถามทั่วไป (Q&A) ให้ตอบเชิงกลยุทธ์ ปัจจัยพื้นฐาน หรือเทคนิค ตามความเหมาะสมของคำถาม
-4. ตัดคำทักทายและคำฟุ่มเฟือยออกทั้งหมด
-5. หากเป็นเรื่องที่ไม่เกี่ยวกับการลงทุน ให้แจ้งว่า "ผมเชี่ยวชาญด้านการลงทุนเท่านั้น"
-6. ใช้ภาษาไทยที่เป็นทางการ กระชับ และได้ใจความแบบมืออาชีพ`;
+2. สำหรับการวิเคราะห์พอร์ตหรือหุ้นรายตัว ให้ใช้โครงสร้าง: [สรุปสภาวะ] -> [Action Plan] -> [ความเสี่ยง]
+3. ตัดคำทักทายและคำฟุ่มเฟือยออกทั้งหมด ตอบเป็นภาษาไทยที่คมชัดและเป็นมืออาชีพ`;
 
 // --- UTILITY FUNCTIONS ---
 
-// ฟังก์ชันเรียกใช้ AI แบบกำหนดสไตล์
-async function getAIAnalysis(prompt) {
+// 1. ฟังก์ชันเรียกใช้ AI แบบกำหนดสไตล์ (Global)
+async function getAIAnalysis(prompt, specializedInstruction = null) {
     try {
         const model = genAI.getGenerativeModel({ 
             model: MODEL_NAME,
-            systemInstruction: systemInstruction
+            systemInstruction: specializedInstruction || systemInstruction
         });
         const result = await model.generateContent(prompt);
         return result.response.text().trim();
     } catch (e) {
-        console.error("AI Error Detailed:", e);
-        if (e.message.includes("404")) {
-            return "⚠️ AI Error: ไม่พบ Model ที่ระบุ (404) กรุณาตรวจสอบ MODEL_NAME";
-        }
+        console.error("AI Error:", e);
         return "⚠️ AI ไม่สามารถวิเคราะห์ได้ในขณะนี้";
     }
 }
-const app = express();
-const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('AI Investment Bot is Active! 🚀'));
-app.listen(port, () => console.log(`Listening on port ${port}`));
 
-// Discord Client Setup
-const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.DirectMessages, 
-        GatewayIntentBits.GuildMessages
-    ] 
-});
-
-// --- UTILITY FUNCTIONS ---
-
-// 1. ฟังก์ชันส่งข้อความยาวๆ โดยการแบ่งเป็นส่วนๆ (ป้องกัน Discord 2000 Char Limit)
+// 2. ฟังก์ชันส่งข้อความยาวๆ โดยการแบ่งเป็นส่วนๆ (ป้องกัน Limit 2000 ตัวอักษร)
 async function sendLongMessage(interaction, text) {
     const maxLength = 1900;
     if (text.length <= maxLength) {
         return await interaction.editReply(text);
     }
-
     const chunks = [];
     for (let i = 0; i < text.length; i += maxLength) {
         chunks.push(text.substring(i, i + maxLength));
     }
-
     await interaction.editReply(chunks[0]);
     for (let i = 1; i < chunks.length; i++) {
         await interaction.followUp(chunks[i]);
     }
 }
 
-// 2. ฟังก์ชันดึงพาดหัวข่าวล่าสุดจาก Google News
+// 3. ฟังก์ชันดึงข่าวพาดหัวจาก Google News
 async function getStockNews(symbol) {
     try {
         const response = await axios.get(`https://www.google.com/search?q=${symbol}+stock+news&tbm=nws`, {
@@ -88,313 +65,162 @@ async function getStockNews(symbol) {
         });
         const $ = cheerio.load(response.data);
         let news = [];
-        $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => {
-            if (i < 3) news.push($(el).text());
-        });
+        $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => { if (i < 3) news.push($(el).text()); });
         return news.length > 0 ? news.join(' | ') : "No recent news found";
-    } catch (e) {
-        return "News unavailable at the moment";
-    }
+    } catch (e) { return "News unavailable"; }
 }
 
-// 3. ฟังก์ชันดึงราคาหุ้นจาก Yahoo Finance
+// 4. ฟังก์ชันดึงข่าวตลาดรวมวันนี้ (สำหรับ /ask)
+async function getMarketTrending() {
+    try {
+        const response = await axios.get(`https://www.google.com/search?q=top+trending+stocks+today+usa+market&tbm=nws`, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const $ = cheerio.load(response.data);
+        let trends = [];
+        $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => { if (i < 5) trends.push($(el).text()); });
+        return trends.join(' | ');
+    } catch (e) { return "Unable to fetch global trends"; }
+}
+
+// 5. ฟังก์ชันดึงราคาหุ้น
 async function getStockPrice(symbol) {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
     try {
-        const response = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
-        });
-        const data = await response.json();
-        if (!data.chart || !data.chart.result) throw new Error('Symbol Not Found');
-        const result = data.chart.result[0].meta;
-        return {
-            price: result.regularMarketPrice,
-            currency: result.currency,
-            symbol: result.symbol,
-            previousClose: result.previousClose
-        };
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const result = response.data.chart.result[0].meta;
+        return { price: result.regularMarketPrice, previousClose: result.previousClose, symbol: result.symbol };
     } catch (error) { throw error; }
 }
 
-// --- SCHEDULED JOBS (CRON) ---
+// --- SCHEDULED JOBS ---
 
-// 🚨 แจ้งเตือนเมื่อราคาขยับแรง ทุก 30 นาที (จันทร์-ศุกร์)
+// แจ้งเตือนราคาขยับแรง ทุก 30 นาที
 cron.schedule('*/30 * * * 1-5', async () => {
-    console.log("🔍 AI กำลังตรวจสอบความเคลื่อนไหวของตลาด...");
     const allStocks = await Watchlist.find({});
-    
     for (const item of allStocks) {
         try {
             const quote = await getStockPrice(item.symbol);
             const change = ((quote.price - quote.previousClose) / quote.previousClose * 100);
-
             if (Math.abs(change) >= 3) {
                 const news = await getStockNews(item.symbol);
-                const prompt = `วิเคราะห์ด่วน: ${item.symbol} ขยับแรง ${change.toFixed(2)}% ราคา $${quote.price} (ทุน $${item.avgPrice})
-                ข่าวล่าสุด: ${news}
-                ระบุ Action Plan: ขาย, DCA, หรือ ถือ พร้อมเหตุผลสั้นๆ 1 ประโยค`;
-                
-                const analysis = await getAIAnalysis(prompt);
+                const analysis = await getAIAnalysis(`วิเคราะห์ด่วน: ${item.symbol} ขยับแรง ${change.toFixed(2)}% ข่าว: ${news} สรุป Action Plan สั้นๆ`);
                 const user = await client.users.fetch(item.userId);
                 await user.send(`📢 **AI Alert: ${item.symbol}**\n${analysis}`);
             }
-        } catch (e) { console.error("Cron Monitor Error:", e.message); }
+        } catch (e) { console.error(e.message); }
     }
 });
 
-// 📅 สรุปพอร์ตรายสัปดาห์ (ทุกวันเสาร์ 10:00 น.)
-cron.schedule('0 10 * * 6', async () => {
-    const users = await Watchlist.distinct('userId');
-    for (const userId of users) {
-        try {
-            const stocks = await Watchlist.find({ userId });
-            let data = [];
-            for (const s of stocks) {
-                const q = await getStockPrice(s.symbol);
-                data.push({ symbol: s.symbol, cost: s.avgPrice, current: q.price, amount: s.amount });
-            }
-
-            const prompt = `วิเคราะห์พอร์ตรายสัปดาห์: ${JSON.stringify(data)}
-            เน้นกลยุทธ์ Rebalance และ Action Plan สัปดาห์หน้า สรุปเป็น Bullet points สั้นๆ`;
-            
-            const analysis = await getAIAnalysis(prompt);
-            const user = await client.users.fetch(userId);
-            await user.send(`🗞️ **Weekly Strategic Report**\n\n${analysis}`);
-        } catch (e) { console.error("Weekly Report Error:", e.message); }
-    }
-});
-
-// 🌙 Daily Market Pulse (จันทร์-ศุกร์ 21:30 น. ช่วงตลาดสหรัฐเปิด)
+// Daily Market Pulse (21:30 น.)
 cron.schedule('30 21 * * 1-5', async () => {
-    console.log("🔍 AI กำลังค้นหาโอกาสการลงทุนประจำวัน...");
-    try {
-        let trends = [];
-        for (const symbol of MARKET_LEADERS) {
-            try {
-                const q = await getStockPrice(symbol);
-                const change = ((q.price - q.previousClose) / q.previousClose * 100);
-                trends.push({ symbol, price: q.price, change });
-            } catch (err) { continue; }
-        }
-        
-        // เลือกหุ้นที่บวกเยอะที่สุด 3 อันดับแรก
-        const topMovers = trends.sort((a, b) => b.change - a.change).slice(0, 3);
-        const prompt = `จากหุ้นกลุ่มผู้นำตลาด: ${JSON.stringify(topMovers)}
-        ช่วยคัดเลือก 1-2 ตัวที่น่าสนใจที่สุดในคืนนี้ พร้อมเหตุผลสั้นๆ 1 ประโยคต่อตัว และราคาเป้าหมายโดยประมาณ`;
-        
-        const insight = await getAIAnalysis(prompt);
-        
-        // ส่งให้ผู้ใช้ทุกคนที่มี Watchlist
-        const userIds = await Watchlist.distinct('userId');
-        for (const userId of userIds) {
-            try {
-                const user = await client.users.fetch(userId);
-                await user.send(`🌟 **Daily Market Pulse: โอกาสการลงทุนคืนนี้**\n\n${insight}`);
-            } catch (err) { console.error(`Failed to send daily insight to ${userId}:`, err.message); }
-        }
-    } catch (e) { console.error("Daily Insight Error:", e.message); }
+    let trends = [];
+    for (const s of MARKET_LEADERS.slice(0, 5)) {
+        try {
+            const q = await getStockPrice(s);
+            trends.push({ symbol: s, change: ((q.price - q.previousClose) / q.previousClose * 100) });
+        } catch (e) { continue; }
+    }
+    const insight = await getAIAnalysis(`หุ้นเด่นคืนนี้: ${JSON.stringify(trends.sort((a,b)=>b.change-a.change))} แนะนำตัวที่น่าสนใจสุด 1 ตัว`);
+    const userIds = await Watchlist.distinct('userId');
+    for (const id of userIds) {
+        const user = await client.users.fetch(id);
+        await user.send(`🌟 **Daily Market Pulse**\n\n${insight}`);
+    }
 });
-
 
 // --- BOT EVENTS ---
 
 client.once('ready', async () => {
     console.log(`🤖 AI Bot Ready: ${client.user.tag}`);
-    try {
-        await mongoose.connect(process.env.MONGODB_URI);
-        console.log('✅ DB Connected');
-    } catch (err) {
-        console.error('❌ DB Connection Error:', err);
-    }
+    await mongoose.connect(process.env.MONGODB_URI);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- ANALYZE PORTFOLIO (วิเคราะห์เชิงลึก + ข่าว) ---
+    // 1. ANALYZE PORTFOLIO
     if (interaction.commandName === 'analyze-portfolio') {
         await interaction.deferReply();
-        try {
-            const stocks = await Watchlist.find({ userId: interaction.user.id });
-            if (stocks.length === 0) return await interaction.editReply("📭 พอร์ตว่างเปล่าครับ");
-
-            let portfolio = [];
-            for (const s of stocks) {
-                const q = await getStockPrice(s.symbol);
-                const news = await getStockNews(s.symbol);
-                portfolio.push({ 
-                    symbol: s.symbol, cost: s.avgPrice, current: q.price, 
-                    profit: ((q.price - s.avgPrice) * s.amount).toFixed(2),
-                    amount: s.amount,
-                    latestNews: news
-                });
-            }
-
-            const prompt = `วิเคราะห์พอร์ตหุ้น: ${JSON.stringify(portfolio)}
-            1. สรุปภาพรวมตลาดที่กระทบพอร์ต
-            2. วิเคราะห์ข่าวที่ส่งผลต่อหุ้นรายตัว
-            3. กำหนด Action Plan แยกรายตัวแบบสั้นๆ`;
-            
-            const analysis = await getAIAnalysis(prompt);
-            const fullResponse = `🤖 **AI Strategic Analysis**\n\n${analysis}`;
-            
-            await sendLongMessage(interaction, fullResponse);
-
-        } catch (e) { 
-            console.error("AI Error:", e);
-            await interaction.editReply('❌ AI ขัดข้อง: กรุณาลองใหม่อีกครั้ง');
+        const stocks = await Watchlist.find({ userId: interaction.user.id });
+        if (stocks.length === 0) return await interaction.editReply("📭 พอร์ตว่างเปล่าครับ");
+        let portfolio = [];
+        for (const s of stocks) {
+            const q = await getStockPrice(s.symbol);
+            const n = await getStockNews(s.symbol);
+            portfolio.push({ symbol: s.symbol, profit: (q.price - s.avgPrice).toFixed(2), news: n });
         }
+        const analysis = await getAIAnalysis(`วิเคราะห์พอร์ต: ${JSON.stringify(portfolio)} เน้นสภาวะตลาดและ Action Plan`);
+        await sendLongMessage(interaction, `🤖 **AI Strategic Analysis**\n\n${analysis}`);
 
-    // --- WATCHLIST ---
-    } else if (interaction.commandName === 'watchlist') {
-        await interaction.deferReply();
-        try {
-            const stocks = await Watchlist.find({ userId: interaction.user.id });
-            if (stocks.length === 0) return await interaction.editReply("📭 พอร์ตว่างเปล่าครับ");
-
-            let results = [];
-            let totalProfit = 0;
-            for (const s of stocks) {
-                const q = await getStockPrice(s.symbol);
-                const p = (q.price - s.avgPrice) * s.amount;
-                totalProfit += p;
-                results.push(`${p >= 0 ? '🟢' : '🔴'} **${s.symbol}**: $${q.price.toFixed(2)} (ทุน $${s.avgPrice.toFixed(2)})\n   └ กำไร: $${p.toFixed(2)} (${s.amount} หุ้น)`);
-            }
-            await interaction.editReply(`📊 **Portfolio Overview**\n${results.join('\n')}\n\n💰 **รวมกำไร/ขาดทุนทั้งหมด: $${totalProfit.toFixed(2)}**`);
-        } catch (e) { await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูล"); }
-
-    // --- STOCK ---
-    } else if (interaction.commandName === 'stock') {
-        await interaction.deferReply();
-        const symbol = interaction.options.getString('symbol').toUpperCase();
-        try {
-            const q = await getStockPrice(symbol);
-            const news = await getStockNews(symbol);
-            const change = ((q.price - q.previousClose) / q.previousClose * 100);
-            
-            const prompt = `วิเคราะห์หุ้นรายตัว: ${symbol} ราคา $${q.price} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%) ข่าว: ${news}
-            สรุปสั้นๆ 1-2 ประโยคว่าน่าสนใจหรือไม่`;
-            
-            const analysis = await getAIAnalysis(prompt);
-
-            await interaction.editReply(`📈 **${symbol}**\n💰 ราคา: $${q.price.toFixed(2)} (${change >= 0 ? '🔼' : '🔽'} ${change.toFixed(2)}%)\n📰 สรุป AI: ${analysis}`);
-        } catch (e) { await interaction.editReply(`❌ ไม่พบข้อมูลหุ้น ${symbol}`); }
-
-    // --- ADD-STOCK ---
-    } else if (interaction.commandName === 'add-stock') {
-        await interaction.deferReply();
-        const symbol = interaction.options.getString('symbol').toUpperCase();
-        const amount = interaction.options.getNumber('amount');
-        const avgPrice = interaction.options.getNumber('avg_price');
-        
-        try {
-            let stock = await Watchlist.findOne({ userId: interaction.user.id, symbol });
-            if (stock) {
-                const newPrice = ((stock.amount * stock.avgPrice) + (amount * avgPrice)) / (stock.amount + amount);
-                stock.amount += amount; stock.avgPrice = newPrice;
-                await stock.save();
-            } else {
-                await Watchlist.create({ userId: interaction.user.id, symbol, amount, avgPrice });
-            }
-            await Transaction.create({ userId: interaction.user.id, symbol, type: 'BUY', amount, price: avgPrice });
-            await interaction.editReply(`✅ บันทึกการเพิ่มหุ้น **${symbol}** จำนวน ${amount} หุ้น ที่ราคา $${avgPrice} เรียบร้อย!`);
-        } catch (e) { await interaction.editReply("❌ บันทึกข้อมูลไม่สำเร็จ"); }
-
-    // --- REMOVE-STOCK ---
-    } else if (interaction.commandName === 'remove-stock') {
-        await interaction.deferReply();
-        const symbol = interaction.options.getString('symbol').toUpperCase();
-        try {
-            const stock = await Watchlist.findOne({ userId: interaction.user.id, symbol });
-            if (!stock) return await interaction.editReply(`❌ คุณไม่มีหุ้น ${symbol} ใน Watchlist`);
-            
-            await Transaction.create({ userId: interaction.user.id, symbol, type: 'SELL', amount: stock.amount, price: 0 }); // price=0 because we just remove
-            await Watchlist.deleteOne({ _id: stock._id });
-            await interaction.editReply(`✅ ลบหุ้น **${symbol}** ออกจาก Watchlist เรียบร้อย!`);
-        } catch (e) { await interaction.editReply("❌ เกิดข้อผิดพลาดในการลบข้อมูล"); }
-
-    // --- UPDATE-STOCK ---
-    } else if (interaction.commandName === 'update-stock') {
-        await interaction.deferReply();
-        const symbol = interaction.options.getString('symbol').toUpperCase();
-        const amount = interaction.options.getNumber('amount');
-        const avgPrice = interaction.options.getNumber('avg_price');
-        try {
-            let stock = await Watchlist.findOne({ userId: interaction.user.id, symbol });
-            if (!stock) return await interaction.editReply(`❌ คุณไม่มีหุ้น ${symbol} ใน Watchlist กรุณาใช้ /add-stock แทน`);
-            
-            stock.amount = amount;
-            stock.avgPrice = avgPrice;
-            await stock.save();
-            
-            await Transaction.create({ userId: interaction.user.id, symbol, type: 'UPDATE', amount, price: avgPrice });
-            await interaction.editReply(`✅ อัปเดตข้อมูลหุ้น **${symbol}** เป็น ${amount} หุ้น ที่ราคา $${avgPrice} เรียบร้อย!`);
-        } catch (e) { await interaction.editReply("❌ อัปเดตข้อมูลไม่สำเร็จ"); }
-
-    // --- HISTORY ---
-    } else if (interaction.commandName === 'history') {
-        await interaction.deferReply();
-        const symbol = interaction.options.getString('symbol')?.toUpperCase();
-        try {
-            const query = { userId: interaction.user.id };
-            if (symbol) query.symbol = symbol;
-
-            const logs = await Transaction.find(query).sort({ date: -1 }).limit(15);
-            if (logs.length === 0) return await interaction.editReply("📭 ไม่พบประวัติการทำรายการ");
-
-            let historyText = logs.map(l => {
-                const dateStr = l.date.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-                const icon = l.type === 'BUY' ? '🔵' : (l.type === 'SELL' ? '🔴' : '⚙️');
-                return `${icon} **${l.type}** ${l.symbol} | ${l.amount} หุ้น | $${l.price}\n   └ 📅 ${dateStr}`;
-            }).join('\n');
-
-            await interaction.editReply(`📜 **ประวัติการทำรายการ 15 รายการล่าสุด**\n${historyText}`);
-        } catch (e) { 
-            console.error(e);
-            await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูลประวัติ"); 
-        }
-
-    // --- ASK AI ---
+    // 2. ASK (แบบดุดันและข้อมูลสด)
     } else if (interaction.commandName === 'ask') {
         await interaction.deferReply();
         const question = interaction.options.getString('question');
-        try {
-            const prompt = `คำถามจากนักลงทุน: "${question}"\nช่วยวิเคราะห์และตอบให้ชัดเจน กระชับ และเป็นมืออาชีพ`;
-            const analysis = await getAIAnalysis(prompt);
-            
-            const response = `💬 **Investor Q&A**\n**Q:** ${question}\n**AI Alpha:** ${analysis}`;
-            await sendLongMessage(interaction, response);
-        } catch (e) {
-            console.error(e);
-            await interaction.editReply("❌ AI ไม่สามารถตอบคำถามได้ในขณะนี้");
-        }
+        const market = await getMarketTrending();
+        const analystInstruction = `คุณคือ 'Expert Wall Street Analyst' ที่ตอบคำถามตรงไปตรงมา ดุดัน และไม่เกรงใจใคร ห้ามตอบเลี่ยงบาลี ข้อมูลวันนี้: ${market}`;
+        const analysis = await getAIAnalysis(`คำถามนักลงทุน: "${question}" ตอบให้ชัดเจน ฟันธงตามข้อมูล`, analystInstruction);
+        await sendLongMessage(interaction, `💬 **Investor Q&A**\n**Q:** ${question}\n\n${analysis}`);
 
-    // --- DISCOVER ---
+    // 3. WATCHLIST
+    } else if (interaction.commandName === 'watchlist') {
+        await interaction.deferReply();
+        const stocks = await Watchlist.find({ userId: interaction.user.id });
+        let res = []; let total = 0;
+        for (const s of stocks) {
+            const q = await getStockPrice(s.symbol);
+            const p = (q.price - s.avgPrice) * s.amount; total += p;
+            res.push(`${p >= 0 ? '🟢' : '🔴'} **${s.symbol}**: $${q.price.toFixed(2)} (กำไร: $${p.toFixed(2)})`);
+        }
+        await interaction.editReply(`📊 **Overview**\n${res.join('\n')}\n💰 **Total P/L: $${total.toFixed(2)}**`);
+
+    // 4. STOCK (รายตัว)
+    } else if (interaction.commandName === 'stock') {
+        await interaction.deferReply();
+        const sym = interaction.options.getString('symbol').toUpperCase();
+        try {
+            const q = await getStockPrice(sym);
+            const n = await getStockNews(sym);
+            const analysis = await getAIAnalysis(`หุ้น ${sym} ราคา $${q.price} ข่าว: ${n} วิเคราะห์ความน่าสนใจสั้นๆ`);
+            await interaction.editReply(`📈 **${sym}**: $${q.price.toFixed(2)}\n📰 AI วิเคราะห์: ${analysis}`);
+        } catch (e) { await interaction.editReply("❌ ไม่พบข้อมูลหุ้น"); }
+
+    // 5. DISCOVER
     } else if (interaction.commandName === 'discover') {
         await interaction.deferReply();
-        try {
-            let marketData = [];
-            // ดึงข้อมูล 8 ตัวแรกเพื่อความเร็ว
-            for (const symbol of MARKET_LEADERS.slice(0, 8)) {
-                try {
-                    const q = await getStockPrice(symbol);
-                    marketData.push({ 
-                        symbol, price: q.price, 
-                        change: ((q.price - q.previousClose) / q.previousClose * 100).toFixed(2)
-                    });
-                } catch (err) { continue; }
-            }
+        const market = await getMarketTrending();
+        const analysis = await getAIAnalysis(`จากข่าวตลาดวันนี้: ${market} แนะนำหุ้นที่น่าจับตาที่สุด 2 ตัวพร้อมเหตุผลเชิงกลยุทธ์`);
+        await sendLongMessage(interaction, `🔎 **AI Discovery**\n\n${analysis}`);
 
-            const prompt = `วิเคราะห์ตลาดจากหุ้นกลุ่มผู้นำ: ${JSON.stringify(marketData)}
-            สรุปหุ้นที่ "น่าจับตามอง" ที่สุดในขณะนี้ 2 ตัว พร้อมเหตุผลเชิงเทคนิคหรือข่าวสาร (ถ้ามี)`;
-            
-            const analysis = await getAIAnalysis(prompt);
-            await interaction.editReply(`🔎 **AI Market Discovery: หุ้นเด่นน่ามอง**\n\n${analysis}`);
-        } catch (e) {
-            console.error(e);
-            await interaction.editReply("❌ เกิดข้อผิดพลาดในการดึงข้อมูลตลาด");
+    // 6. ADD / REMOVE / UPDATE / HISTORY
+    } else if (interaction.commandName === 'add-stock') {
+        await interaction.deferReply();
+        const s = interaction.options.getString('symbol').toUpperCase();
+        const a = interaction.options.getNumber('amount');
+        const p = interaction.options.getNumber('avg_price');
+        let stock = await Watchlist.findOne({ userId: interaction.user.id, symbol: s });
+        if (stock) {
+            stock.avgPrice = ((stock.amount * stock.avgPrice) + (a * p)) / (stock.amount + a);
+            stock.amount += a; await stock.save();
+        } else {
+            await Watchlist.create({ userId: interaction.user.id, symbol: s, amount: a, avgPrice: p });
         }
+        await Transaction.create({ userId: interaction.user.id, symbol: s, type: 'BUY', amount: a, price: p });
+        await interaction.editReply(`✅ บันทึกหุ้น **${s}** เรียบร้อย!`);
+
+    } else if (interaction.commandName === 'remove-stock') {
+        await interaction.deferReply();
+        const s = interaction.options.getString('symbol').toUpperCase();
+        await Watchlist.deleteOne({ userId: interaction.user.id, symbol: s });
+        await interaction.editReply(`✅ ลบหุ้น **${s}** ออกแล้ว`);
+
+    } else if (interaction.commandName === 'history') {
+        await interaction.deferReply();
+        const logs = await Transaction.find({ userId: interaction.user.id }).sort({ date: -1 }).limit(10);
+        const text = logs.map(l => `🔹 **${l.type}** ${l.symbol} | ${l.amount} หุ้น | $${l.price}`).join('\n');
+        await interaction.editReply(`📜 **ประวัติล่าสุด**\n${text || 'ไม่พบรายการ'}`);
     }
 });
 
+const app = express(); app.get('/', (req, res) => res.send('OK')); app.listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
