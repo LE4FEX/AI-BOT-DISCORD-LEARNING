@@ -36,20 +36,18 @@ function smartRequire(targetFile) {
 const Watchlist = smartRequire('watchlist');
 const Transaction = smartRequire('transaction');
 
-// --- 🤖 ปรับแต่ง Discord Client (เพิ่ม Intents และระบบ Debug) ---
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
+// --- 🤖 จุดที่ 1: ปรับ Intents ให้เหลือเท่าที่จำเป็นที่สุดก่อน ---
 const client = new Client({ 
     intents: [
         GatewayIntentBits.Guilds, 
         GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,   // เพิ่มให้ตรงกับ Portal
-        GatewayIntentBits.GuildPresences  // เพิ่มให้ตรงกับ Portal
+        GatewayIntentBits.MessageContent
     ] 
 });
 
-// ระบบสืบสวน (Debug) - จะช่วยบอกว่าบอทคุยอะไรกับ Discord บ้าง
+// ระบบสืบสวน (Debug)
 client.on('debug', info => {
     if (info.includes('Session') || info.includes('Identify') || info.includes('Heartbeat')) {
         console.log(`[DEBUG] ${info}`);
@@ -71,7 +69,7 @@ async function deployCommands() {
     } catch (e) { console.error('❌ Sync Error:', e); }
 }
 
-// --- 🚀 เริ่มระบบ (เวอร์ชันรายงานผลละเอียด) ---
+// --- 🚀 จุดที่ 2: เริ่มระบบ (เวอร์ชันป้องกันการค้าง) ---
 async function start() {
     try {
         console.log('--- 🚀 Starting Services Verification ---');
@@ -91,14 +89,13 @@ async function start() {
                 deployCommands(); 
             });
 
-            // สั่ง Login พร้อมดัก Error
-            await client.login(process.env.DISCORD_TOKEN).catch(err => {
-                console.error('❌ DISCORD LOGIN FAILED!');
-                console.error(`Reason: ${err.message}`);
-                if (err.message.includes('disallowed intents')) {
-                    console.error('👉 วิธีแก้: ไปที่ Discord Developer Portal > Bot > เปิด "Message Content Intent"');
-                }
-            });
+            // สั่ง Login โดยไม่ใช้ await ที่บรรทัดนี้เพื่อไม่ให้บล็อกการทำงานอื่น
+            client.login(process.env.DISCORD_TOKEN)
+                .then(() => console.log('📨 Login request sent to Discord...'))
+                .catch(err => {
+                    console.error('❌ DISCORD LOGIN FAILED!');
+                    console.error(`Reason: ${err.message}`);
+                });
 
         } else {
             console.error('❌ DISCORD_TOKEN is missing');
