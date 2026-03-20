@@ -13,9 +13,10 @@ const MAX_EMBED_DESCRIPTION_LENGTH = 4000;
 const FALLBACK_SECTOR = 'Unknown';
 const appStartedAt = new Date().toISOString();
 
-// ใช้ process.cwd() เพื่อย้อนกลับไปที่ Root Directory ของโปรเจกต์เสมอ
-const Watchlist = require(path.join(process.cwd(), 'models', 'watchlist'));
-const Transaction = require(path.join(process.cwd(), 'models', 'transaction'));
+// __dirname คือที่อยู่ของ index.js (คือ src)
+// '..' คือการถอยออกจาก src ไปที่ root
+const Watchlist = require(path.join(__dirname, '..', 'models', 'watchlist'));
+const Transaction = require(path.join(__dirname, '..', 'models', 'transaction'));
 
 // ตั้งค่า Gemini (ใช้ 1.5-flash เพื่อความชัวร์)
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
