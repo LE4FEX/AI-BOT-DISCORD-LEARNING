@@ -33,9 +33,9 @@ function getModel(folder, file) {
     }
 }
 
-// เรียกใช้ Models (ใช้ชื่อตัวเล็กตามที่คุณตรวจสอบใน GitHub)
-const Watchlist = getModel('models', 'watchlist');
-const Transaction = getModel('models', 'transaction');
+// ถ้าโฟลเดอร์ models อยู่ใน src เหมือนกับ index.js ให้ใช้แบบนี้ครับ
+const Watchlist = require('./models/watchlist');
+const Transaction = require('./models/transaction');
 
 // ตั้งค่า Gemini
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
