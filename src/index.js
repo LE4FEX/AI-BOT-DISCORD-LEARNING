@@ -18,7 +18,7 @@ const Transaction = require('./models/transaction');
 const genAI = process.env.GEMINI_API_KEY
     ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
     : null;
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 app.get('/', (req, res) => res.send('AI Alpha Bot is running!'));
 
