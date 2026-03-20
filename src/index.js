@@ -192,12 +192,16 @@ client.on(Events.InteractionCreate, async interaction => {
 // --- Start Services ---
 async function start() {
     await connectDB();
-    await deployCommands();
+    
+    // ลอง Login ก่อนเลย เพื่อให้บอทออนไลน์ทันที
     if (process.env.DISCORD_TOKEN) {
-        console.log(`🔐 Attempting login with token: ...${process.env.DISCORD_TOKEN.slice(-4)}`);
-        client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login Failed:', err.message));
+        console.log(`🔐 Attempting login...`);
+        await client.login(process.env.DISCORD_TOKEN);
+        
+        // พอ Login สำเร็จค่อยสั่ง Deploy Commands ตามหลัง
+        await deployCommands(); 
     } else {
-        console.error('❌ DISCORD_TOKEN is missing in Environment Variables!');
+        console.error('❌ DISCORD_TOKEN is missing!');
     }
 }
 
