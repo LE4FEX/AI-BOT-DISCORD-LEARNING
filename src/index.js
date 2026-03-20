@@ -41,8 +41,17 @@ const client = new Client({
 });
 
 const commands = [
-    new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้น').addStringOption(o => o.setName('symbol').setRequired(true)),
-    new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นในพอร์ต')
+    new SlashCommandBuilder()
+        .setName('stock')
+        .setDescription('เช็คราคาหุ้นและวิเคราะห์ด้วย AI')
+        .addStringOption(option => 
+            option.setName('symbol')
+                .setDescription('ใส่ชื่อหุ้นที่ต้องการ (เช่น TSLA, NVDA)') // <--- ห้ามลืมบรรทัดนี้!
+                .setRequired(true)
+        ),
+    new SlashCommandBuilder()
+        .setName('watchlist')
+        .setDescription('ดูรายการหุ้นทั้งหมดในพอร์ตของคุณ')
 ].map(cmd => cmd.toJSON());
 
 async function deployCommands() {
