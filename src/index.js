@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const { Client, GatewayIntentBits, Events, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -12,9 +13,9 @@ const MAX_EMBED_DESCRIPTION_LENGTH = 4000;
 const FALLBACK_SECTOR = 'Unknown';
 const appStartedAt = new Date().toISOString();
 
-// แก้ไข Path เพราะ index.js อยู่ใน src แต่ models อยู่ข้างนอก
-const Watchlist = require('../models/watchlist');
-const Transaction = require('../models/transaction');
+// ใช้ process.cwd() เพื่อย้อนกลับไปที่ Root Directory ของโปรเจกต์เสมอ
+const Watchlist = require(path.join(process.cwd(), 'models', 'watchlist'));
+const Transaction = require(path.join(process.cwd(), 'models', 'transaction'));
 
 // ตั้งค่า Gemini (ใช้ 1.5-flash เพื่อความชัวร์)
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
