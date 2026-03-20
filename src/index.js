@@ -64,13 +64,35 @@ client.once(Events.ClientReady, c => console.log(`✅✅✅ BOT ONLINE: ${c.user
 // --- 🚀 เริ่มระบบ ---
 async function start() {
     try {
+        console.log('--- 🚀 Starting Services Verification ---');
+        
+        // 1. ตรวจสอบ Environment Variables เบื้องต้น (ไม่โชว์ Token จริงเพื่อความปลอดภัย)
+        console.log(`📡 Checking Env Vars: TOKEN=${process.env.DISCORD_TOKEN ? 'YES' : 'NO'}, CLIENT=${process.env.CLIENT_ID ? 'YES' : 'NO'}`);
+
         await mongoose.connect(process.env.MONGODB_URI);
-        console.log('✅ DB Connected');
+        console.log('✅ DB Connected Successfully');
+
+        // 2. บังคับ Login
         if (process.env.DISCORD_TOKEN) {
+            console.log('🔐 Attempting Discord Login... (Waiting for Discord response)');
+            
+            // ตั้ง Timeout ถ้า Discord ไม่ตอบใน 10 วินาทีให้แจ้งเตือน
+            const loginTimeout = setTimeout(() => {
+                console.error('⚠️ Login is taking too long... checking connection');
+            }, 10000);
+
             await client.login(process.env.DISCORD_TOKEN);
-            deployCommands();
+            clearTimeout(loginTimeout);
+            
+            console.log(`✅✅✅ BOT IS NOW ONLINE AS: ${client.user.tag}`);
+            deployCommands(); 
+        } else {
+            console.error('❌ CRITICAL ERROR: DISCORD_TOKEN is completely missing from Render Settings!');
         }
-    } catch (err) { console.error('❌ Start Error:', err); }
+    } catch (err) {
+        console.error('❌ BOOT ERROR:', err.message);
+        console.error(err.stack); // โชว์จุดที่ Error อย่างละเอียด
+    }
 }
 
 app.get('/', (req, res) => res.send('Bot is Live'));
