@@ -41,16 +41,42 @@ const Transaction = require('./models/transaction');
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
-// --- Slash Commands Definition ---
+// --- Slash Commands Definition (แก้ไขจุดที่ขาด Description) ---
 const commands = [
-    new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
-    new SlashCommandBuilder().setName('add-stock').setDescription('เพิ่มหุ้นเข้าพอร์ต').addStringOption(o => o.setName('symbol').setRequired(true)).addNumberOption(o => o.setName('amount').setRequired(true)).addNumberOption(o => o.setName('avg_price').setRequired(true)),
-    new SlashCommandBuilder().setName('remove-stock').setDescription('ลบหุ้นออก').addStringOption(o => o.setName('symbol').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('stock')
+        .setDescription('เช็คราคาหุ้นและวิเคราะห์')
+        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น เช่น MSFT').setRequired(true)),
+    
+    new SlashCommandBuilder()
+        .setName('add-stock')
+        .setDescription('เพิ่มหุ้นเข้าพอร์ต')
+        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true))
+        .addNumberOption(o => o.setName('amount').setDescription('จำนวนหุ้น').setRequired(true))
+        .addNumberOption(o => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true)),
+    
+    new SlashCommandBuilder()
+        .setName('remove-stock')
+        .setDescription('ลบหุ้นออก')
+        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้นที่ต้องการลบ').setRequired(true)),
+    
     new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นทั้งหมดในพอร์ต'),
-    new SlashCommandBuilder().setName('update-stock').setDescription('แก้ไขข้อมูลหุ้น').addStringOption(o => o.setName('symbol').setRequired(true)).addNumberOption(o => o.setName('amount').setRequired(true)).addNumberOption(o => o.setName('avg_price').setRequired(true)),
+    
+    new SlashCommandBuilder()
+        .setName('update-stock')
+        .setDescription('แก้ไขข้อมูลหุ้น')
+        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true))
+        .addNumberOption(o => o.setName('amount').setDescription('จำนวนหุ้นใหม่').setRequired(true))
+        .addNumberOption(o => o.setDescription('ราคาเฉลี่ยใหม่').setName('avg_price').setRequired(true)), // เพิ่ม Description ตรงนี้
+    
     new SlashCommandBuilder().setName('history').setDescription('ดูประวัติการทำรายการ'),
     new SlashCommandBuilder().setName('analyze-portfolio').setDescription('AI วิเคราะห์พอร์ต'),
-    new SlashCommandBuilder().setName('ask').setDescription('ถาม AI').addStringOption(o => o.setName('question').setRequired(true)),
+    
+    new SlashCommandBuilder()
+        .setName('ask')
+        .setDescription('ถาม AI')
+        .addStringOption(o => o.setName('question').setDescription('คำถามที่ต้องการถาม').setRequired(true)),
+    
     new SlashCommandBuilder().setName('discover').setDescription('AI ค้นหาหุ้นเด่น'),
     new SlashCommandBuilder().setName('sentiment').setDescription('เช็คสภาวะตลาด'),
     new SlashCommandBuilder().setName('analyze-diversification').setDescription('วิเคราะห์การกระจายความเสี่ยง'),
