@@ -1,64 +1,48 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { Client, GatewayIntentBits, Events, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- 🛠️ ฟังก์ชัน "นักสืบ" (เหมือนเดิม) ---
+// --- 🛠️ ฟังก์ชัน "นักสืบ" (คงไว้เพราะทำงานได้ดีแล้ว) ---
 function smartRequire(targetFile) {
     const searchDirs = [
         path.join(process.cwd(), 'models'),
         path.join(process.cwd(), 'src', 'models'),
-        path.join(__dirname, 'models'),
-        path.join(__dirname, '..', 'models')
+        path.join(__dirname, 'models')
     ];
     for (let dir of searchDirs) {
         if (fs.existsSync(dir)) {
             const files = fs.readdirSync(dir);
             const foundFile = files.find(f => f.toLowerCase() === targetFile.toLowerCase() + '.js');
-            if (foundFile) {
-                const fullPath = path.join(dir, foundFile);
-                console.log(`✅ Smart Found: ${fullPath}`);
-                return require(fullPath);
-            }
+            if (foundFile) return require(path.join(dir, foundFile));
         }
     }
-    console.error(`❌ Search failed for: ${targetFile}`);
-    throw new Error(`Module ${targetFile} not found.`);
+    throw new Error(`หาไฟล์ ${targetFile} ไม่เจอครับ`);
 }
 
 const Watchlist = smartRequire('watchlist');
 const Transaction = smartRequire('transaction');
 
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-
-// --- 🤖 จุดที่ 1: ปรับ Intents ให้เหลือเท่าที่จำเป็นที่สุดก่อน ---
+// --- 🤖 ปรับแต่ง Client ตามรูปภาพที่คุณส่งมา (เปิดครบ 5 ตัวที่จำเป็น) ---
 const client = new Client({ 
     intents: [
         GatewayIntentBits.Guilds, 
         GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent, //
+        GatewayIntentBits.GuildMembers,   //
+        GatewayIntentBits.GuildPresences  //
     ] 
 });
 
-// ระบบสืบสวน (Debug)
-client.on('debug', info => {
-    if (info.includes('Session') || info.includes('Identify') || info.includes('Heartbeat')) {
-        console.log(`[DEBUG] ${info}`);
-    }
-});
-
-client.on('error', err => console.error('❌ Discord Client Error:', err));
-
 const commands = [
-    new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
-    new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นทั้งหมดในพอร์ต')
+    new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้น').addStringOption(o => o.setName('symbol').setRequired(true)),
+    new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นในพอร์ต')
 ].map(cmd => cmd.toJSON());
 
 async function deployCommands() {
@@ -66,45 +50,43 @@ async function deployCommands() {
         const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
         console.log('✅ Commands Registered');
-    } catch (e) { console.error('❌ Sync Error:', e); }
+    } catch (e) { console.error('❌ Sync Error:', e.message); }
 }
 
-// --- 🚀 จุดที่ 2: เริ่มระบบ (เวอร์ชันป้องกันการค้าง) ---
+// --- 🚀 เริ่มระบบ (ปรับลำดับให้มั่นคงขึ้น) ---
 async function start() {
     try {
-        console.log('--- 🚀 Starting Services Verification ---');
-        console.log(`📡 Checking Env Vars: TOKEN=${process.env.DISCORD_TOKEN ? 'YES' : 'NO'}`);
-
+        console.log('--- 🚀 Starting Jarvis Services ---');
+        
+        // 1. เชื่อมต่อ Database
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ DB Connected Successfully');
 
+        // 2. ตั้งค่ารอรับเหตุการณ์ "พร้อมทำงาน" ไว้ก่อนเริ่ม Login
+        client.once(Events.ClientReady, async (c) => {
+            console.log('******************************************');
+            console.log(`✅ SUCCESS! Jarvis is Online as: ${c.user.tag}`);
+            console.log('******************************************');
+            await deployCommands(); 
+        });
+
+        // 3. เริ่มการ Login
         if (process.env.DISCORD_TOKEN) {
             console.log('🔐 Attempting Discord Login...');
-            
-            // รอรับสัญญาณว่าออนไลน์จริง
-            client.once(Events.ClientReady, c => {
-                console.log('******************************************');
-                console.log(`✅✅✅ SUCCESS! BOT IS ONLINE AS: ${c.user.tag}`);
-                console.log('******************************************');
-                deployCommands(); 
+            client.login(process.env.DISCORD_TOKEN).catch(err => {
+                console.error('❌ LOGIN FAILED:', err.message);
+                console.log('👉 คำแนะนำ: ลองกด Reset Token ใน Discord Portal แล้วเอาค่าใหม่มาใส่ใน Render ครับ');
             });
-
-            // สั่ง Login โดยไม่ใช้ await ที่บรรทัดนี้เพื่อไม่ให้บล็อกการทำงานอื่น
-            client.login(process.env.DISCORD_TOKEN)
-                .then(() => console.log('📨 Login request sent to Discord...'))
-                .catch(err => {
-                    console.error('❌ DISCORD LOGIN FAILED!');
-                    console.error(`Reason: ${err.message}`);
-                });
-
-        } else {
-            console.error('❌ DISCORD_TOKEN is missing');
         }
+
     } catch (err) {
         console.error('❌ BOOT ERROR:', err.message);
     }
 }
 
-app.get('/', (req, res) => res.send('Bot is Live'));
-app.listen(port, () => console.log(`🌍 Server active on ${port}`));
-start();
+// ส่วนของ Web Server สำหรับ Render
+app.get('/', (req, res) => res.send('Jarvis is Live!'));
+app.listen(port, () => {
+    console.log(`🌍 Server active on port ${port}`);
+    start(); // เริ่มทำงานบอทหลังจาก Server รันแล้ว
+});
