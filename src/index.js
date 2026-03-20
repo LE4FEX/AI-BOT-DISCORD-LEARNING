@@ -65,33 +65,33 @@ client.once(Events.ClientReady, c => console.log(`✅✅✅ BOT ONLINE: ${c.user
 async function start() {
     try {
         console.log('--- 🚀 Starting Services Verification ---');
-        
-        // 1. ตรวจสอบ Environment Variables เบื้องต้น (ไม่โชว์ Token จริงเพื่อความปลอดภัย)
-        console.log(`📡 Checking Env Vars: TOKEN=${process.env.DISCORD_TOKEN ? 'YES' : 'NO'}, CLIENT=${process.env.CLIENT_ID ? 'YES' : 'NO'}`);
+        console.log(`📡 Checking Env Vars: TOKEN=${process.env.DISCORD_TOKEN ? 'YES' : 'NO'}`);
 
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ DB Connected Successfully');
 
-        // 2. บังคับ Login
         if (process.env.DISCORD_TOKEN) {
-            console.log('🔐 Attempting Discord Login... (Waiting for Discord response)');
+            console.log('🔐 Attempting Discord Login...');
             
-            // ตั้ง Timeout ถ้า Discord ไม่ตอบใน 10 วินาทีให้แจ้งเตือน
-            const loginTimeout = setTimeout(() => {
-                console.error('⚠️ Login is taking too long... checking connection');
-            }, 10000);
+            // ดักจับ Error ตอน Login โดยตรง
+            client.login(process.env.DISCORD_TOKEN).catch(err => {
+                console.error('❌ DISCORD LOGIN FAILED!');
+                console.error(`Reason: ${err.message}`);
+                if (err.message.includes('Used disallowed intents')) console.error('👉 ไปเช็คที่ Discord Portal ว่าเปิด Intents ครบหรือยัง');
+                if (err.message.includes('An invalid token was provided')) console.error('👉 Token ไม่ถูกต้องหรือถูก Reset ไปแล้ว');
+            });
 
-            await client.login(process.env.DISCORD_TOKEN);
-            clearTimeout(loginTimeout);
-            
-            console.log(`✅✅✅ BOT IS NOW ONLINE AS: ${client.user.tag}`);
-            deployCommands(); 
+            // รอ Event Ready
+            client.once('ready', () => {
+                console.log(`✅✅✅ SUCCESS! BOT ONLINE AS: ${client.user.tag}`);
+                deployCommands();
+            });
+
         } else {
-            console.error('❌ CRITICAL ERROR: DISCORD_TOKEN is completely missing from Render Settings!');
+            console.error('❌ DISCORD_TOKEN is missing');
         }
     } catch (err) {
         console.error('❌ BOOT ERROR:', err.message);
-        console.error(err.stack); // โชว์จุดที่ Error อย่างละเอียด
     }
 }
 
