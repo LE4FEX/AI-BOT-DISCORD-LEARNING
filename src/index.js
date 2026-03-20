@@ -10,7 +10,7 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- 🛠️ ฟังก์ชัน "นักสืบ" (หาไฟล์ให้เจอ ไม่ว่าชื่อจะเป็นตัวเล็กหรือใหญ่) ---
+// --- 🛠️ ฟังก์ชัน "นักสืบ" (เหมือนเดิม) ---
 function smartRequire(targetFile) {
     const searchDirs = [
         path.join(process.cwd(), 'models'),
@@ -18,11 +18,9 @@ function smartRequire(targetFile) {
         path.join(__dirname, 'models'),
         path.join(__dirname, '..', 'models')
     ];
-
     for (let dir of searchDirs) {
         if (fs.existsSync(dir)) {
             const files = fs.readdirSync(dir);
-            // ค้นหาไฟล์ที่ชื่อตรงกัน (แบบไม่สนใจตัวเล็ก-ใหญ่)
             const foundFile = files.find(f => f.toLowerCase() === targetFile.toLowerCase() + '.js');
             if (foundFile) {
                 const fullPath = path.join(dir, foundFile);
@@ -31,20 +29,34 @@ function smartRequire(targetFile) {
             }
         }
     }
-    
-    // ถ้ายังไม่เจอ ให้ลิสต์ไฟล์ทั้งหมดออกมาประจานเลยครับว่ามีอะไรบ้าง
     console.error(`❌ Search failed for: ${targetFile}`);
-    console.error(`📂 Root content: ${fs.readdirSync(process.cwd()).join(', ')}`);
-    throw new Error(`Module ${targetFile} หายไปไหนไม่รู้ใน GitHub!`);
+    throw new Error(`Module ${targetFile} not found.`);
 }
 
-// เรียกใช้แบบไม่ต้องกังวลเรื่องตัวเล็ก-ใหญ่
 const Watchlist = smartRequire('watchlist');
 const Transaction = smartRequire('transaction');
 
-// --- 🤖 ส่วนของ Discord & AI (เหมือนเดิม) ---
+// --- 🤖 ปรับแต่ง Discord Client (เพิ่ม Intents และระบบ Debug) ---
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,   // เพิ่มให้ตรงกับ Portal
+        GatewayIntentBits.GuildPresences  // เพิ่มให้ตรงกับ Portal
+    ] 
+});
+
+// ระบบสืบสวน (Debug) - จะช่วยบอกว่าบอทคุยอะไรกับ Discord บ้าง
+client.on('debug', info => {
+    if (info.includes('Session') || info.includes('Identify') || info.includes('Heartbeat')) {
+        console.log(`[DEBUG] ${info}`);
+    }
+});
+
+client.on('error', err => console.error('❌ Discord Client Error:', err));
 
 const commands = [
     new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
@@ -59,9 +71,7 @@ async function deployCommands() {
     } catch (e) { console.error('❌ Sync Error:', e); }
 }
 
-client.once(Events.ClientReady, c => console.log(`✅✅✅ BOT ONLINE: ${c.user.tag}`));
-
-// --- 🚀 เริ่มระบบ ---
+// --- 🚀 เริ่มระบบ (เวอร์ชันรายงานผลละเอียด) ---
 async function start() {
     try {
         console.log('--- 🚀 Starting Services Verification ---');
@@ -73,18 +83,21 @@ async function start() {
         if (process.env.DISCORD_TOKEN) {
             console.log('🔐 Attempting Discord Login...');
             
-            // ดักจับ Error ตอน Login โดยตรง
-            client.login(process.env.DISCORD_TOKEN).catch(err => {
-                console.error('❌ DISCORD LOGIN FAILED!');
-                console.error(`Reason: ${err.message}`);
-                if (err.message.includes('Used disallowed intents')) console.error('👉 ไปเช็คที่ Discord Portal ว่าเปิด Intents ครบหรือยัง');
-                if (err.message.includes('An invalid token was provided')) console.error('👉 Token ไม่ถูกต้องหรือถูก Reset ไปแล้ว');
+            // รอรับสัญญาณว่าออนไลน์จริง
+            client.once(Events.ClientReady, c => {
+                console.log('******************************************');
+                console.log(`✅✅✅ SUCCESS! BOT IS ONLINE AS: ${c.user.tag}`);
+                console.log('******************************************');
+                deployCommands(); 
             });
 
-            // รอ Event Ready
-            client.once('ready', () => {
-                console.log(`✅✅✅ SUCCESS! BOT ONLINE AS: ${client.user.tag}`);
-                deployCommands();
+            // สั่ง Login พร้อมดัก Error
+            await client.login(process.env.DISCORD_TOKEN).catch(err => {
+                console.error('❌ DISCORD LOGIN FAILED!');
+                console.error(`Reason: ${err.message}`);
+                if (err.message.includes('disallowed intents')) {
+                    console.error('👉 วิธีแก้: ไปที่ Discord Developer Portal > Bot > เปิด "Message Content Intent"');
+                }
             });
 
         } else {
