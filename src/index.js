@@ -27,7 +27,7 @@ const Transaction = require('./models/transaction');
 
 // --- AI CONFIG ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.5-flash";  //ทดลองใช้ 2.5
+const MODEL_NAME = "gemini-2.0-flash";  // เปลี่ยนเป็น 2.0 Flash เพื่อความเสถียรสูงสุด
 
 const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
 บุคลิกของคุณ: สุภาพ, เป็นกันเองแต่เป็นมืออาชีพ, มั่นใจ และให้เกียรติผู้ใช้งาน
@@ -85,8 +85,8 @@ async function getAIAnalysis(prompt, specializedInstruction = null) {
         const result = await model.generateContent(prompt);
         return result.response.text().trim();
     } catch (e) {
-        console.error("AI Error:", e);
-        return "⚠️ AI ไม่สามารถวิเคราะห์ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง";
+        console.error("AI Error:", e.message);
+        return `⚠️ AI เกิดข้อผิดพลาด: ${e.message.includes('model not found') ? 'ชื่อโมเดลไม่ถูกต้อง' : 'กรุณาลองใหม่อีกครั้งหรือเช็ค API Key'}`;
     }
 }
 
