@@ -35,4 +35,4 @@ const transactionSchema = new mongoose.Schema({
 // ทำให้คำสั่ง /history ทำงานได้รวดเร็วแม้จะมีประวัติเป็นพันรายการ
 transactionSchema.index({ userId: 1, date: -1 });
 
-module.exports = mongoose.now || mongoose.model('Transaction', transactionSchema);
+module.exports = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);

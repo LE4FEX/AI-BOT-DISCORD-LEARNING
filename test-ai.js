@@ -10,9 +10,9 @@ async function runTest() {
     console.log("✅ พบ API Key:", process.env.GEMINI_API_KEY.substring(0, 10) + "...");
 
     try {
-        console.log("กำลังส่งคำขอไปที่ Gemini 1.5 Flash...");
+        console.log("กำลังส่งคำขอไปที่ Gemini 2.5 Flash...");
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
         const result = await model.generateContent("ทดสอบระบบ ตอบกลับสั้นๆว่า 'ระบบทำงานปกติครับ'");
         console.log("\n🎉 คำตอบจาก AI:");

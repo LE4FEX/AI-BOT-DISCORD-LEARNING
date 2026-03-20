@@ -135,11 +135,20 @@ client.on(Events.InteractionCreate, async interaction => {
                 try {
                     const q = await getStockPrice(s.symbol);
                     const n = await getStockNews(s.symbol);
-                    return { symbol: s.symbol, profit: (q.price - s.avgPrice).toFixed(2), news: n };
-                } catch (e) { return { symbol: s.symbol, profit: 'N/A', news: 'N/A' }; }
+                    const totalProfit = (q.price - s.avgPrice) * s.amount;
+                    return { 
+                        symbol: s.symbol, 
+                        shares: s.amount,
+                        avgPrice: s.avgPrice,
+                        currentPrice: q.price,
+                        profit: totalProfit.toFixed(2), 
+                        news: n 
+                    };
+                } catch (e) { return { symbol: s.symbol, error: 'Price/News unavailable' }; }
             }));
 
-            const analysis = await getAIAnalysis(`วิเคราะห์พอร์ต: ${JSON.stringify(portfolioData)}`);
+            const analysis = await getAIAnalysis(`วิเคราะห์พอร์ตลงทุนปัจจุบัน (JSON Format): ${JSON.stringify(portfolioData)}
+กรุณาให้คำแนะนำเชิงกลยุทธ์แบบมืออาชีพ โดยอ้างอิงจากราคาปัจจุบันและข่าวสารที่เกิดขึ้น`);
             await sendEmbedResponse(interaction, "🤖 AI Strategic Analysis", analysis, 0x00FF00);
 
         // 2. WATCHLIST
@@ -148,17 +157,21 @@ client.on(Events.InteractionCreate, async interaction => {
             const stocks = await Watchlist.find({ userId: interaction.user.id });
             if (stocks.length === 0) return await interaction.editReply("📭 พอร์ตว่างเปล่าครับ");
 
-            let total = 0;
-            const res = await Promise.all(stocks.map(async (s) => {
+            const results = await Promise.all(stocks.map(async (s) => {
                 try {
                     const q = await getStockPrice(s.symbol);
                     const p = (q.price - s.avgPrice) * s.amount;
-                    total += p;
-                    return `${p >= 0 ? '🟢' : '🔴'} **${s.symbol}**: $${q.price.toFixed(2)} (P/L: $${p.toFixed(2)})`;
-                } catch (e) { return `⚪ **${s.symbol}**: N/A`; }
+                    return { 
+                        text: `${p >= 0 ? '🟢' : '🔴'} **${s.symbol}**: $${q.price.toFixed(2)} (P/L: $${p.toFixed(2)})`, 
+                        profit: p 
+                    };
+                } catch (e) { return { text: `⚪ **${s.symbol}**: N/A`, profit: 0 }; }
             }));
 
-            await sendEmbedResponse(interaction, "My Watchlist", `📊 **Overview**\n${res.join('\n')}\n\n💰 **Total P/L: $${total.toFixed(2)}**`, 0xFFA500);
+            const total = results.reduce((sum, r) => sum + r.profit, 0);
+            const resText = results.map(r => r.text).join('\n');
+
+            await sendEmbedResponse(interaction, "My Watchlist", `📊 **Overview**\n${resText}\n\n💰 **Total P/L: $${total.toFixed(2)}**`, 0xFFA500);
 
         // 3. ANALYZE DIVERSIFICATION
         } else if (interaction.commandName === 'analyze-diversification') {
@@ -204,6 +217,10 @@ client.on(Events.InteractionCreate, async interaction => {
             stock.amount = a;
             stock.avgPrice = p;
             await stock.save();
+
+            // บันทึกประวัติการอัปเดต
+            await Transaction.create({ userId: interaction.user.id, symbol: s, type: 'UPDATE', amount: a, price: p });
+
             await interaction.editReply(`✅ อัปเดตหุ้น **${s}** เป็น ${a} หุ้น ที่ราคาเฉลี่ย $${p} เรียบร้อย!`);
 
         // 5. ADD STOCK
