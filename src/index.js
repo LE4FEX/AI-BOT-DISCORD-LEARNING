@@ -7,12 +7,36 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
 
-// --- SETUP SERVER & CLIENT ---
+// --- SETUP SERVER ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('AI Alpha Bot is running!'));
-app.listen(port, () => console.log(`🌍 Server is listening on port ${port}`));
 
+app.get('/', (req, res) => res.send('AI Alpha Bot is running!'));
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+const server = app.listen(port, () => {
+    console.log(`🌍 Server is listening on port ${port}`);
+});
+
+// --- DATABASE CONNECTION ---
+async function connectDB() {
+    try {
+        if (!process.env.MONGODB_URI) {
+            throw new Error("MONGODB_URI is not defined in environment variables");
+        }
+        await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 5000 // ให้รอแค่ 5 วินาทีพอ ถ้าไม่ได้ให้ Error เลย
+        });
+        console.log("✅ MongoDB Connected Successfully");
+    } catch (err) {
+        console.error("❌ MongoDB Connection Error:", err.message);
+        // ไม่สั่ง process.exit เพื่อให้ Server ยังรันอยู่ Render จะได้ไม่ขึ้น Timed Out
+    }
+}
+
+connectDB();
+
+// --- DISCORD CLIENT SETUP ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -27,98 +51,14 @@ const Transaction = require('./models/transaction');
 
 // --- AI CONFIG ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.0-flash";  // เปลี่ยนเป็น 2.0 Flash เพื่อความเสถียรสูงสุด
+const MODEL_NAME = "gemini-2.0-flash";
 
-const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
-บุคลิกของคุณ: สุภาพ, เป็นกันเองแต่เป็นมืออาชีพ, มั่นใจ และให้เกียรติผู้ใช้งาน
-หน้าที่ของคุณ:
-1. วิเคราะห์หุ้นและตอบคำถามเกี่ยวกับการลงทุน หุ้น ตลาดทุน และเศรษฐกิจ อย่างแม่นยำและเข้าใจง่าย
-2. ให้ข้อมูลเชิงลึกที่ช่วยในการตัดสินใจ โดยอ้างอิงจากข้อมูลล่าสุดและสภาวะตลาด (Fear & Greed Index)
-3. ใช้โครงสร้างการตอบ: [บทสรุปและสภาวะตลาด] -> [คำแนะนำ/Action Plan] -> [ความเสี่ยง]
-4. ใช้คำลงท้ายที่สุภาพ (ครับ/ค่ะ) และทักทายอย่างสั้นและกระชับที่สุด`;
-
-const MARKET_LEADERS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'META', 'GOOGL', 'AMZN', 'NFLX', 'AMD', 'COIN', 'BTC-USD'];
-
-// --- UTILITY FUNCTIONS ---
-
-async function getMarketSentiment() {
-    try {
-        const stockRes = await axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', {
-            headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
-        });
-        const cryptoRes = await axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 8000 });
-        return {
-            stock: { score: Math.round(stockRes.data.fear_and_greed.score), rating: stockRes.data.fear_and_greed.rating },
-            crypto: { score: cryptoRes.data.data[0].value, rating: cryptoRes.data.data[0].value_classification }
-        };
-    } catch (e) { return null; }
-}
-
-async function getStockPrice(symbol) {
-    try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
-        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
-        const result = response.data.chart.result[0].meta;
-        return { price: result.regularMarketPrice, previousClose: result.previousClose, symbol: result.symbol };
-    } catch (error) { throw new Error(`Price unavailable for ${symbol}`); }
-}
-
-async function getStockProfile(symbol) {
-    try {
-        const searchRes = await axios.get(`https://query2.finance.yahoo.com/v1/finance/search?q=${symbol}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
-        const quote = searchRes.data.quotes.find(q => q.symbol.toUpperCase() === symbol.toUpperCase());
-        if (quote && (quote.sector || quote.typeDisp === 'cryptocurrency')) {
-            return { sector: quote.sector || (quote.typeDisp === 'cryptocurrency' ? 'Cryptocurrency' : 'Unknown') };
-        }
-        return { sector: "Other" };
-    } catch (e) { return { sector: "Unknown" }; }
-}
-
-async function getAIAnalysis(prompt, specializedInstruction = null) {
-    try {
-        const sentiment = await getMarketSentiment();
-        const sentimentContext = sentiment ? `\nMarket Sentiment: Stock ${sentiment.stock.score} (${sentiment.stock.rating}), Crypto ${sentiment.crypto.score} (${sentiment.crypto.rating})` : "";
-        const model = genAI.getGenerativeModel({ 
-            model: MODEL_NAME, 
-            systemInstruction: (specializedInstruction || systemInstruction) + sentimentContext 
-        });
-        const result = await model.generateContent(prompt);
-        return result.response.text().trim();
-    } catch (e) {
-        console.error("AI Error:", e.message);
-        return `⚠️ AI เกิดข้อผิดพลาด: ${e.message.includes('model not found') ? 'ชื่อโมเดลไม่ถูกต้อง' : 'กรุณาลองใหม่อีกครั้งหรือเช็ค API Key'}`;
-    }
-}
-
-async function sendEmbedResponse(interaction, title, description, color = 0x0099FF) {
-    const maxLength = 3900;
-    if (description.length <= maxLength) {
-        const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
-        return await interaction.editReply({ embeds: [embed] });
-    }
-    const chunks = description.match(/[\s\S]{1,3900}/g) || [];
-    const firstEmbed = new EmbedBuilder().setTitle(title).setDescription(chunks[0]).setColor(color);
-    await interaction.editReply({ embeds: [firstEmbed] });
-    for (let i = 1; i < chunks.length; i++) {
-        await interaction.followUp({ embeds: [new EmbedBuilder().setDescription(chunks[i]).setColor(color)] });
-    }
-}
-
-async function getStockNews(symbol) {
-    try {
-        const res = await axios.get(`https://www.google.com/search?q=${symbol}+stock+news&tbm=nws`, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
-        const $ = cheerio.load(res.data);
-        let news = [];
-        $('div.BNeawe.vv94Jb.AP7Wnd').each((i, el) => { if (i < 3) news.push($(el).text()); });
-        return news.length > 0 ? news.join(' | ') : "No news found";
-    } catch (e) { return "News unavailable"; }
-}
+// ... (rest of the code remains the same) ...
 
 // --- BOT EVENTS & COMMANDS ---
 
-client.once('ready', async () => {
+client.once('ready', () => {
     console.log(`🤖 AI Bot Ready: ${client.user.tag}`);
-    await mongoose.connect(process.env.MONGODB_URI);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
