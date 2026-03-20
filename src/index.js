@@ -10,6 +10,7 @@ const port = process.env.PORT || 3000;
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4000;
 const FALLBACK_SECTOR = 'Unknown';
+const appStartedAt = new Date().toISOString();
 
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
@@ -20,17 +21,6 @@ const genAI = process.env.GEMINI_API_KEY
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 app.get('/', (req, res) => res.send('AI Alpha Bot is running!'));
-app.get('/health', (req, res) => {
-    const mongoReadyState = mongoose.connection.readyState;
-    const discordReady = client.isReady();
-
-    res.status(200).json({
-        ok: true,
-        mongoReadyState,
-        discordReady,
-        uptimeSeconds: Math.floor(process.uptime())
-    });
-});
 
 const server = app.listen(port, () => {
     console.log(`🌍 Server is listening on port ${port}`);
@@ -57,6 +47,32 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
     ]
+});
+
+const discordStatus = {
+    loginAttempted: false,
+    loginStartedAt: null,
+    loginResolvedAt: null,
+    readyAt: null,
+    lastError: null,
+    lastWarn: null,
+    lastInvalidatedAt: null,
+    lastDisconnect: null,
+    userTag: null,
+};
+
+app.get('/health', (req, res) => {
+    const mongoReadyState = mongoose.connection.readyState;
+    const discordReady = client.isReady();
+
+    res.status(200).json({
+        ok: true,
+        mongoReadyState,
+        discordReady,
+        uptimeSeconds: Math.floor(process.uptime()),
+        appStartedAt,
+        discordStatus,
+    });
 });
 
 function truncateText(text, maxLength = MAX_EMBED_DESCRIPTION_LENGTH) {
@@ -177,18 +193,61 @@ async function startServices() {
 
     if (!process.env.DISCORD_TOKEN) {
         console.error('❌ DISCORD_TOKEN is not defined. Discord bot login skipped.');
+        discordStatus.lastError = 'DISCORD_TOKEN is not defined';
         return;
     }
 
     try {
+        discordStatus.loginAttempted = true;
+        discordStatus.loginStartedAt = new Date().toISOString();
+        console.log('🔐 Attempting Discord login...');
         await client.login(process.env.DISCORD_TOKEN);
+        discordStatus.loginResolvedAt = new Date().toISOString();
+        console.log('✅ Discord login promise resolved');
     } catch (error) {
         console.error('❌ Discord login failed:', error.message);
+        discordStatus.lastError = error.message;
     }
 }
 
 client.once(Events.ClientReady, readyClient => {
+    discordStatus.readyAt = new Date().toISOString();
+    discordStatus.userTag = readyClient.user.tag;
     console.log(`🤖 AI Bot Ready: ${readyClient.user.tag}`);
+});
+
+client.on(Events.Warn, warning => {
+    discordStatus.lastWarn = warning;
+    console.warn('⚠️ Discord warning:', warning);
+});
+
+client.on(Events.Error, error => {
+    discordStatus.lastError = error.message;
+    console.error('❌ Discord client error:', error);
+});
+
+client.on(Events.Invalidated, () => {
+    discordStatus.lastInvalidatedAt = new Date().toISOString();
+    console.error('❌ Discord session invalidated');
+});
+
+client.on(Events.ShardReady, shardId => {
+    console.log(`🧩 Discord shard ${shardId} is ready`);
+});
+
+client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
+    discordStatus.lastDisconnect = {
+        at: new Date().toISOString(),
+        shardId,
+        code: closeEvent?.code ?? null,
+        reason: closeEvent?.reason || null,
+    };
+    console.warn(`⚠️ Discord shard ${shardId} disconnected with code ${closeEvent?.code ?? 'unknown'}`);
+});
+
+client.on(Events.ShardError, (error, shardId) => {
+    discordStatus.lastError = `Shard ${shardId}: ${error.message}`;
+    console.error(`❌ Discord shard ${shardId} error:`, error);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
