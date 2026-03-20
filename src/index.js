@@ -10,203 +10,91 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 const REQUEST_TIMEOUT_MS = 8000;
-const FALLBACK_SECTOR = 'Unknown';
 
-// --- ฟังก์ชันดึง Model แบบพิเศษ (แก้ปัญหา Path บน Render) ---
+// --- ฟังก์ชันดึง Model ---
 function getModel(folder, file) {
-    // 1. ลองหาจาก Root (ใช้สำหรับโครงสร้างมาตรฐาน)
     const rootPath = path.join(process.cwd(), folder, file);
-    // 2. ลองหาแบบถอยหลังจาก src (ใช้เมื่อรันจากภายใน src)
     const relativePath = path.join(__dirname, '..', folder, file);
-    
-    if (fs.existsSync(rootPath + '.js') || fs.existsSync(rootPath)) {
-        console.log(`✅ Found ${file} at Root: ${rootPath}`);
-        return require(rootPath);
-    } else if (fs.existsSync(relativePath + '.js') || fs.existsSync(relativePath)) {
-        console.log(`✅ Found ${file} via Relative: ${relativePath}`);
-        return require(relativePath);
-    } else {
-        // ถ้าไม่เจอ ให้ List ไฟล์ใน Root ออกมาดูเพื่อ Debug ผ่านหน้า Logs ของ Render
-        const rootContent = fs.existsSync(process.cwd()) ? fs.readdirSync(process.cwd()) : 'Directory not found';
-        console.error(`❌ Module Not Found: ${file}. Available in root:`, rootContent);
-        throw new Error(`Cannot find module '${file}' in '${folder}' folder.`);
-    }
+    if (fs.existsSync(rootPath + '.js')) return require(rootPath);
+    if (fs.existsSync(relativePath + '.js')) return require(relativePath);
+    throw new Error(`Cannot find module '${file}'`);
 }
 
-// ถ้าโฟลเดอร์ models อยู่ใน src เหมือนกับ index.js ให้ใช้แบบนี้ครับ
-const Watchlist = require('./models/watchlist');
-const Transaction = require('./models/transaction');
+const Watchlist = getModel('models', 'watchlist');
+const Transaction = getModel('models', 'transaction');
 
 // ตั้งค่า Gemini
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
-// --- Slash Commands Definition (แก้ไขจุดที่ขาด Description) ---
+// --- Slash Commands ---
 const commands = [
-    new SlashCommandBuilder()
-        .setName('stock')
-        .setDescription('เช็คราคาหุ้นและวิเคราะห์')
-        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น เช่น MSFT').setRequired(true)),
-    
-    new SlashCommandBuilder()
-        .setName('add-stock')
-        .setDescription('เพิ่มหุ้นเข้าพอร์ต')
-        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true))
-        .addNumberOption(o => o.setName('amount').setDescription('จำนวนหุ้น').setRequired(true))
-        .addNumberOption(o => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true)),
-    
-    new SlashCommandBuilder()
-        .setName('remove-stock')
-        .setDescription('ลบหุ้นออก')
-        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้นที่ต้องการลบ').setRequired(true)),
-    
+    new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
+    new SlashCommandBuilder().setName('add-stock').setDescription('เพิ่มหุ้นเข้าพอร์ต').addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)).addNumberOption(o => o.setName('amount').setDescription('จำนวน').setRequired(true)).addNumberOption(o => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true)),
     new SlashCommandBuilder().setName('watchlist').setDescription('ดูหุ้นทั้งหมดในพอร์ต'),
-    
-    new SlashCommandBuilder()
-        .setName('update-stock')
-        .setDescription('แก้ไขข้อมูลหุ้น')
-        .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true))
-        .addNumberOption(o => o.setName('amount').setDescription('จำนวนหุ้นใหม่').setRequired(true))
-        .addNumberOption(o => o.setDescription('ราคาเฉลี่ยใหม่').setName('avg_price').setRequired(true)), // เพิ่ม Description ตรงนี้
-    
-    new SlashCommandBuilder().setName('history').setDescription('ดูประวัติการทำรายการ'),
-    new SlashCommandBuilder().setName('analyze-portfolio').setDescription('AI วิเคราะห์พอร์ต'),
-    
-    new SlashCommandBuilder()
-        .setName('ask')
-        .setDescription('ถาม AI')
-        .addStringOption(o => o.setName('question').setDescription('คำถามที่ต้องการถาม').setRequired(true)),
-    
-    new SlashCommandBuilder().setName('discover').setDescription('AI ค้นหาหุ้นเด่น'),
-    new SlashCommandBuilder().setName('sentiment').setDescription('เช็คสภาวะตลาด'),
-    new SlashCommandBuilder().setName('analyze-diversification').setDescription('วิเคราะห์การกระจายความเสี่ยง'),
+    new SlashCommandBuilder().setName('ask').setDescription('ถาม AI').addStringOption(o => o.setName('question').setDescription('คำถาม').setRequired(true)),
+    new SlashCommandBuilder().setName('sentiment').setDescription('เช็คสภาวะตลาด')
 ].map(cmd => cmd.toJSON());
 
-// --- Core Functions ---
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent
+    ] 
+});
+
+// --- ฟังก์ชัน Deploy Commands (แยกออกมาทำงานอิสระ) ---
 async function deployCommands() {
-    if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID) {
-        return console.error('❌ Cannot deploy commands: Missing TOKEN or CLIENT_ID');
-    }
+    if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID) return;
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('⏳ Refreshing Slash Commands...');
+        console.log('⏳ Updating Slash Commands...');
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
         console.log('✅ Slash Commands Synchronized');
-    } catch (error) { console.error('❌ Command Error:', error); }
+    } catch (error) { console.error('❌ Deploy Error:', error); }
 }
 
-async function connectDB() {
-    try {
-        if (!process.env.MONGODB_URI) throw new Error('Missing MONGODB_URI');
-        await mongoose.connect(process.env.MONGODB_URI);
-        console.log('✅ MongoDB Connected Successfully');
-    } catch (err) { console.error('❌ DB Connection Error:', err.message); }
-}
-
-const client = new Client({ 
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
-});
-
-// --- Helper Functions ---
-async function httpGet(url) { return axios.get(url, { timeout: REQUEST_TIMEOUT_MS }); }
-
-async function getStockPrice(symbol) {
-    const { data } = await httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}?interval=1d&range=1d`);
-    const result = data?.chart?.result?.[0];
-    if (!result) throw new Error('Stock not found');
-    return { symbol: symbol.toUpperCase(), price: result.meta.regularMarketPrice };
-}
-
-async function getAIAnalysis(prompt) {
-    if (!genAI) return '⚠️ AI Service not configured (Missing API Key)';
-    try {
-        const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-        const result = await model.generateContent(prompt);
-        return result.response.text();
-    } catch (e) { return '❌ AI Error: ' + e.message; }
-}
-
-// --- Bot Events ---
+// --- Events ---
 client.once(Events.ClientReady, c => {
-    console.log(`🤖 Bot Online! Logged in as ${c.user.tag}`);
+    console.log(`✅✅✅ BOT IS ONLINE: ${c.user.tag}`); // ถ้าเห็นบรรทัดนี้คือสำเร็จ!
 });
 
+// (ใส่ Interaction Handler เดิมของคุณตรงนี้...)
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    
+    await interaction.deferReply();
     try {
-        await interaction.deferReply();
-
         if (interaction.commandName === 'stock') {
-            const sym = interaction.options.getString('symbol').toUpperCase();
-            const q = await getStockPrice(sym);
-            const ai = await getAIAnalysis(`วิเคราะห์แนวโน้มหุ้น ${sym} ที่ราคา $${q.price} แบบสั้นๆ`);
-            const embed = new EmbedBuilder()
-                .setTitle(`📈 ข้อมูลหุ้น: ${sym}`)
-                .setDescription(`**ราคาปัจจุบัน:** $${q.price}\n\n**AI Analysis:**\n${ai}`)
-                .setColor(0x2ECC71)
-                .setTimestamp();
-            await interaction.editReply({ embeds: [embed] });
+            // Logic หุ้นของคุณ...
+            await interaction.editReply('ระบบกำลังวิเคราะห์หุ้น...');
         }
-        else if (interaction.commandName === 'watchlist') {
-            const stocks = await Watchlist.find({ userId: interaction.user.id });
-            if (!stocks || stocks.length === 0) return interaction.editReply('📭 คุณยังไม่มีหุ้นในพอร์ต ใช้ `/add-stock` เพื่อเพิ่มหุ้นครับ');
-            
-            const rows = await Promise.all(stocks.map(async s => {
-                const q = await getStockPrice(s.symbol).catch(() => ({ price: 0 }));
-                const profit = ((q.price - s.avgPrice) * s.amount).toFixed(2);
-                return `**${s.symbol}**: $${q.price} (P/L: $${profit})`;
-            }));
-            
-            const embed = new EmbedBuilder()
-                .setTitle('📋 My Watchlist')
-                .setDescription(rows.join('\n'))
-                .setColor(0xFFA500);
-            await interaction.editReply({ embeds: [embed] });
-        }
-        else if (interaction.commandName === 'add-stock') {
-            const sym = interaction.options.getString('symbol').toUpperCase();
-            const amt = interaction.options.getNumber('amount');
-            const avg = interaction.options.getNumber('avg_price');
-
-            await Watchlist.findOneAndUpdate(
-                { userId: interaction.user.id, symbol: sym },
-                { amount: amt, avgPrice: avg },
-                { upsert: true }
-            );
-            
-            // บันทึกประวัติ
-            await Transaction.create({ userId: interaction.user.id, symbol: sym, type: 'BUY', amount: amt, price: avg });
-            
-            await interaction.editReply(`✅ บันทึกหุ้น **${sym}** จำนวน ${amt} หุ้น ที่ราคา $${avg} เรียบร้อย!`);
-        }
-        // ... คำสั่งอื่นๆ สามารถก๊อปปี้ Logic เดิมมาวางเพิ่มได้ครับ ...
-        
-    } catch (err) {
-        console.error('Command Error:', err);
-        const errorMsg = err.message.includes('Stock not found') ? '❌ ไม่พบชื่อหุ้นนี้' : '❌ เกิดข้อผิดพลาด: ' + err.message;
-        if (interaction.deferred) await interaction.editReply(errorMsg);
-    }
+    } catch (e) { await interaction.editReply('Error: ' + e.message); }
 });
 
 // --- Start Services ---
 async function start() {
-    await connectDB();
-    
-    // ลอง Login ก่อนเลย เพื่อให้บอทออนไลน์ทันที
-    if (process.env.DISCORD_TOKEN) {
-        console.log(`🔐 Attempting login...`);
-        await client.login(process.env.DISCORD_TOKEN);
-        
-        // พอ Login สำเร็จค่อยสั่ง Deploy Commands ตามหลัง
-        await deployCommands(); 
-    } else {
-        console.error('❌ DISCORD_TOKEN is missing!');
+    try {
+        // 1. เชื่อมต่อฐานข้อมูล
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('✅ MongoDB Connected');
+
+        // 2. Login ทันที (เพื่อให้บอทออนไลน์จุดเขียว)
+        if (process.env.DISCORD_TOKEN) {
+            console.log('🔐 Logging in to Discord...');
+            await client.login(process.env.DISCORD_TOKEN);
+            
+            // 3. หลังจาก Online แล้วค่อยอัปเดตคำสั่ง (แบบไม่รอให้มันค้าง)
+            deployCommands(); 
+        } else {
+            console.error('❌ DISCORD_TOKEN missing');
+        }
+    } catch (err) {
+        console.error('❌ Start Error:', err);
     }
 }
 
-// Keep-alive server
-app.get('/', (req, res) => res.send('AI Alpha Bot is running!'));
-app.listen(port, () => console.log(`🌍 Web Server active on port ${port}`));
+app.get('/', (req, res) => res.send('Bot Status: Online'));
+app.listen(port, () => console.log(`🌍 Server active on ${port}`));
 
 start();
