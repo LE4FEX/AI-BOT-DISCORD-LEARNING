@@ -62,40 +62,47 @@ async function deployCommands() {
     } catch (e) { console.error('❌ Sync Error:', e.message); }
 }
 
-// --- 🚀 เริ่มระบบ (ปรับลำดับให้มั่นคงขึ้น) ---
+// --- 🚀 เริ่มระบบ (ปรับปรุงใหม่เพื่อความเสถียรบน Render) ---
 async function start() {
     try {
         console.log('--- 🚀 Starting Jarvis Services ---');
         
-        // 1. เชื่อมต่อ Database
+        // 1. ตรวจสอบ Environment Variables
+        if (!process.env.DISCORD_TOKEN) throw new Error('❌ Missing DISCORD_TOKEN in environment variables');
+        if (!process.env.MONGODB_URI) throw new Error('❌ Missing MONGODB_URI in environment variables');
+
+        // 2. เชื่อมต่อ Database
+        console.log('⏳ Connecting to MongoDB...');
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ DB Connected Successfully');
 
-        // 2. ตั้งค่ารอรับเหตุการณ์ "พร้อมทำงาน" ไว้ก่อนเริ่ม Login
+        // 3. ตั้งค่า Client Events
         client.once(Events.ClientReady, async (c) => {
             console.log('******************************************');
             console.log(`✅ SUCCESS! Jarvis is Online as: ${c.user.tag}`);
+            console.log(`📡 Intents: ${client.options.intents}`);
             console.log('******************************************');
             await deployCommands(); 
         });
 
-        // 3. เริ่มการ Login
-        if (process.env.DISCORD_TOKEN) {
-            console.log('🔐 Attempting Discord Login...');
-            client.login(process.env.DISCORD_TOKEN).catch(err => {
-                console.error('❌ LOGIN FAILED:', err.message);
-                console.log('👉 คำแนะนำ: ลองกด Reset Token ใน Discord Portal แล้วเอาค่าใหม่มาใส่ใน Render ครับ');
-            });
-        }
+        client.on(Events.Error, (error) => {
+            console.error('❌ Discord Client Error:', error);
+        });
+
+        // 4. เริ่มการ Login
+        console.log('🔐 Attempting Discord Login...');
+        await client.login(process.env.DISCORD_TOKEN);
 
     } catch (err) {
         console.error('❌ BOOT ERROR:', err.message);
+        process.exit(1); // จบการทำงานหากเกิดข้อผิดพลาดร้ายแรงเพื่อให้ Render ทราบว่าแอปพัง
     }
 }
 
 // ส่วนของ Web Server สำหรับ Render
-app.get('/', (req, res) => res.send('Jarvis is Live!'));
-app.listen(port, () => {
-    console.log(`🌍 Server active on port ${port}`);
-    start(); // เริ่มทำงานบอทหลังจาก Server รันแล้ว
+app.get('/', (req, res) => res.status(200).send('Jarvis is Live and Running!'));
+
+app.listen(port, '0.0.0.0', () => {
+    console.log(`🌍 Health Check Server active on port ${port}`);
+    start(); 
 });
