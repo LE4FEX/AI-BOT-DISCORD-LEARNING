@@ -73,6 +73,13 @@ async function start() {
         const cleanToken = rawToken.replace(/["']/g, '').trim();
         const cleanMongo = rawMongo.trim();
 
+        // ตรวจสอบความถูกต้องของ Token เบื้องต้น
+        if (cleanToken.length < 50) {
+            console.error('⚠️ ALERT: ดูเหมือน DISCORD_TOKEN จะสั้นเกินไป!');
+            console.error('👉 โปรดตรวจสอบว่าคุณใช้ "Bot Token" ไม่ใช่ "Client Secret" หรือ "Public Key"');
+            console.error(`📏 ความยาวที่พบ: ${cleanToken.length} ตัวอักษร (ปกติควร > 70)`);
+        }
+
         console.log('⏳ Connecting to MongoDB...');
         await mongoose.connect(cleanMongo);
         console.log('✅ DB Connected Successfully');
