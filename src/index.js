@@ -186,7 +186,7 @@ cron.schedule('*/30 * * * 1-5', async () => {
             } catch (e) { console.error(`Alert failed for ${item.symbol}:`, e.message); }
         }
     } catch (e) { console.error('Cron Alert error:', e.message); }
-});
+}, { timezone: "Asia/Bangkok" });
 
 // 2. Daily Market Pulse (21:30 น.)
 cron.schedule('30 21 * * 1-5', async () => {
@@ -207,7 +207,7 @@ cron.schedule('30 21 * * 1-5', async () => {
             } catch (e) { console.error(`Failed to send pulse to ${id}:`, e.message); }
         }
     } catch (e) { console.error('Cron Market Pulse error:', e.message); }
-});
+}, { timezone: "Asia/Bangkok" });
 
 // 3. Earnings Call Reminder (08:00 น.)
 cron.schedule('0 8 * * 1-5', async () => {
@@ -234,7 +234,7 @@ cron.schedule('0 8 * * 1-5', async () => {
             } catch (e) { console.error(e.message); }
         }
     } catch (e) { console.error('Cron Earnings error:', e.message); }
-});
+}, { timezone: "Asia/Bangkok" });
 
 // 4. Morning Brief (20:30 น.)
 cron.schedule('30 20 * * 1-5', async () => {
@@ -252,7 +252,7 @@ cron.schedule('30 20 * * 1-5', async () => {
             } catch (e) { console.error(`Morning Brief failed for ${id}:`, e.message); }
         }
     } catch (e) { console.error('Cron Morning Brief error:', e.message); }
-});
+}, { timezone: "Asia/Bangkok" });
 
 // --- EVENT HANDLERS ---
 
