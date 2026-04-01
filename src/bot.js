@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getAIAnalysis } = require('./ai');
-const { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews } = require('./data');
+const { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA, getChartUrl } = require('./data');
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
 const Dca = require('./models/dca');
@@ -8,7 +8,6 @@ const Snapshot = require('./models/snapshot');
 const Alert = require('./models/alert');
 const { updatePortfolio, addDividend } = require('./portfolio-service');
 const { env } = require('./config');
-const { getStockHistory, calculateRSI, calculateEMA } = require('./data');
 
 const commands = [
   new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption((o) => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
@@ -125,12 +124,18 @@ const handlers = {
 
     const rsi = calculateRSI(history);
     const ema20 = calculateEMA(history, 20);
+    const chartUrl = getChartUrl(symbol, history);
+
     const technical = `📊 **Technical Indicators:**\n` +
       `- **RSI (14):** ${rsi ? rsi.toFixed(2) : 'N/A'} (${rsi > 70 ? 'Overbought ⚠️' : rsi < 30 ? 'Oversold 💎' : 'Neutral'})\n` +
       `- **EMA (20):** $${ema20 ? ema20.toFixed(2) : 'N/A'} (Price is ${q.price > ema20 ? 'Above 📈' : 'Below 📉'} EMA20)`;
 
     const analysis = await getAIAnalysis(`วิเคราะห์หุ้น ${symbol} ราคา $${q.price} RSI: ${rsi} EMA20: ${ema20} ข่าว: ${news}`);
-    await sendEmbed(interaction, `📈 Analysis: ${symbol}`, `**Price:** $${q.price}\n\n${technical}\n\n🕵️ **AI Analysis:**\n${analysis}`);
+    
+    const embed = embedFor(`📈 Analysis: ${symbol}`, `**Price:** $${q.price}\n\n${technical}\n\n🕵️ **AI Analysis:**\n${analysis}`);
+    if (chartUrl) embed.setImage(chartUrl);
+
+    await interaction.editReply({ embeds: [embed] });
   },
 
   'add-stock': async (interaction) => {

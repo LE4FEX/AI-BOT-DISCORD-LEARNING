@@ -112,4 +112,36 @@ const calculateEMA = (prices, period) => {
   return ema;
 };
 
-module.exports = { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA };
+const getChartUrl = (symbol, prices) => {
+  if (!prices || prices.length === 0) return null;
+  
+  // กรองค่า null ออก
+  const validPrices = prices.filter(p => p !== null);
+  const labels = validPrices.map((_, i) => i);
+  
+  const chartConfig = {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: `${symbol} Price (30D)`,
+        data: validPrices,
+        fill: false,
+        borderColor: 'rgb(75, 192, 192)',
+        tension: 0.1,
+        pointRadius: 0
+      }]
+    },
+    options: {
+      title: { display: true, text: `${symbol} Performance` },
+      scales: {
+        xAxes: [{ display: false }],
+        yAxes: [{ gridLines: { color: 'rgba(255,255,255,0.1)' } }]
+      }
+    }
+  };
+
+  return `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&bkg=white`;
+};
+
+module.exports = { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA, getChartUrl };
