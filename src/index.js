@@ -14,7 +14,8 @@ app.get('/', (req, res) => res.send('AI Alpha is Live!'));
 app.get('/api/stats', async (req, res) => {
   try {
     const Watchlist = require('./models/watchlist');
-    const totalUsers = await Watchlist.distinct('userId').length;
+    const users = await Watchlist.distinct('userId');
+    const totalUsers = users.length;
     const totalStocks = await Watchlist.countDocuments();
     res.json({ totalUsers, totalStocks, status: 'online' });
   } catch (e) {
