@@ -14,7 +14,7 @@ const transactionSchema = new mongoose.Schema({
     },
     type: { 
         type: String, 
-        enum: ['BUY', 'SELL', 'UPDATE'], // จำกัดประเภทข้อมูลเพื่อความแม่นยำ
+        enum: ['BUY', 'SELL', 'UPDATE', 'DIVIDEND'], 
         required: true 
     },
     amount: { 
@@ -24,6 +24,10 @@ const transactionSchema = new mongoose.Schema({
     price: { 
         type: Number, 
         required: true 
+    },
+    fee: {
+        type: Number,
+        default: 0
     },
     date: { 
         type: Date, 

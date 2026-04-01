@@ -4,11 +4,19 @@ const { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getS
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
 const Dca = require('./models/dca');
+const Snapshot = require('./models/snapshot');
+const Alert = require('./models/alert');
+const { updatePortfolio, addDividend } = require('./portfolio-service');
 const { env } = require('./config');
+const { getStockHistory, calculateRSI, calculateEMA } = require('./data');
 
 const commands = [
   new SlashCommandBuilder().setName('stock').setDescription('เช็คราคาหุ้นและวิเคราะห์').addStringOption((o) => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
-  new SlashCommandBuilder().setName('add-stock').setDescription('เพิ่มหุ้นเข้า Watchlist').addStringOption((o) => o.setName('symbol').setDescription('ชื่อย่อหุ้น').setRequired(true)).addNumberOption((o) => o.setName('amount').setDescription('จำนวน').setRequired(true)).addNumberOption((o) => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true)),
+  new SlashCommandBuilder().setName('add-stock').setDescription('เพิ่มหุ้นเข้า Watchlist')
+    .addStringOption((o) => o.setName('symbol').setDescription('ชื่อย่อหุ้น').setRequired(true))
+    .addNumberOption((o) => o.setName('amount').setDescription('จำนวน').setRequired(true))
+    .addNumberOption((o) => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true))
+    .addNumberOption((o) => o.setName('fee').setDescription('ค่าธรรมเนียม (USD)')),
   new SlashCommandBuilder().setName('remove-stock').setDescription('ลบหุ้นออก').addStringOption((o) => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
   new SlashCommandBuilder().setName('watchlist').setDescription('ดู Watchlist'),
   new SlashCommandBuilder().setName('update-stock').setDescription('แก้ไขข้อมูลหุ้น').addStringOption((o) => o.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true)).addNumberOption((o) => o.setName('amount').setDescription('จำนวน').setRequired(true)).addNumberOption((o) => o.setName('avg_price').setDescription('ราคาเฉลี่ย').setRequired(true)),
@@ -30,6 +38,18 @@ const commands = [
   new SlashCommandBuilder().setName('dca-remove').setDescription('ลบแผน DCA')
     .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
   new SlashCommandBuilder().setName('dca-stats').setDescription('ดูสถิติการลงทุนแบบ DCA ทั้งหมดของคุณ'),
+  new SlashCommandBuilder().setName('add-dividend').setDescription('บันทึกเงินปันผลเพื่อลดต้นทุน')
+    .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true))
+    .addNumberOption(o => o.setName('amount').setDescription('ยอดเงินปันผลรวม (USD)').setRequired(true)),
+  new SlashCommandBuilder().setName('alert-add').setDescription('ตั้งแจ้งเตือนราคา')
+    .addStringOption(o => o.setName('symbol').setDescription('ชื่อหุ้น').setRequired(true))
+    .addNumberOption(o => o.setName('price').setDescription('ราคาเป้าหมาย').setRequired(true))
+    .addStringOption(o => o.setName('type').setDescription('เงื่อนไข').setRequired(true).addChoices(
+      { name: 'สูงกว่า (Above)', value: 'above' },
+      { name: 'ต่ำกว่า (Below)', value: 'below' }
+    )),
+  new SlashCommandBuilder().setName('alert-list').setDescription('ดูรายการแจ้งเตือนทั้งหมด'),
+  new SlashCommandBuilder().setName('portfolio-history').setDescription('ดูประวัติการเติบโตของพอร์ต (7 วันย้อนหลัง)'),
 ].map((cmd) => cmd.toJSON());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -65,46 +85,63 @@ const sendEmbed = async (interaction, title, description, color = 0x0099FF) => {
 };
 
 const formatWatchlist = async (stocks) => {
-  let total = 0;
+  let totalPortfolioValue = 0;
+  let totalPortfolioCost = 0;
+  
   const lines = await Promise.all(
     stocks.map(async (stock) => {
       try {
         const q = await getStockPrice(stock.symbol);
-        const profit = (q.price - stock.avgPrice) * stock.amount;
-        total += profit;
-        return `${profit >= 0 ? '🟢' : '🔴'} **${stock.symbol}**: $${q.price.toFixed(2)} (P/L: $${profit.toFixed(2)})`;
+        const currentVal = q.price * stock.amount;
+        const totalCost = stock.avgPrice * stock.amount;
+        const profit = currentVal - totalCost;
+        const profitPercent = (profit / totalCost) * 100;
+        
+        totalPortfolioValue += currentVal;
+        totalPortfolioCost += totalCost;
+        
+        const emoji = profit >= 0 ? '🟢' : '🔴';
+        return `${emoji} **${stock.symbol}**: $${q.price.toFixed(2)} (ต้นทุน: $${stock.avgPrice.toFixed(2)})\n      > ถือ: ${stock.amount.toFixed(4)} | P/L: $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`;
       } catch {
         return `⚪ **${stock.symbol}**: N/A`;
       }
     })
   );
-  return { lines, total };
+  
+  const totalProfit = totalPortfolioValue - totalPortfolioCost;
+  const totalProfitPercent = totalPortfolioCost > 0 ? (totalProfit / totalPortfolioCost) * 100 : 0;
+  
+  return { lines, totalPortfolioValue, totalProfit, totalProfitPercent };
 };
 
 const handlers = {
   stock: async (interaction) => {
     const symbol = interaction.options.getString('symbol').toUpperCase();
-    const q = await getStockPrice(symbol);
-    const analysis = await getAIAnalysis(`วิเคราะห์หุ้น ${symbol} ราคา $${q.price} ข่าว: ${await getStockNews(symbol)}`);
-    await sendEmbed(interaction, `📈 Analysis: ${symbol}`, `**Price:** $${q.price}\n\n${analysis}`);
+    const [q, history, news] = await Promise.all([
+      getStockPrice(symbol),
+      getStockHistory(symbol),
+      getStockNews(symbol)
+    ]);
+
+    const rsi = calculateRSI(history);
+    const ema20 = calculateEMA(history, 20);
+    const technical = `📊 **Technical Indicators:**\n` +
+      `- **RSI (14):** ${rsi ? rsi.toFixed(2) : 'N/A'} (${rsi > 70 ? 'Overbought ⚠️' : rsi < 30 ? 'Oversold 💎' : 'Neutral'})\n` +
+      `- **EMA (20):** $${ema20 ? ema20.toFixed(2) : 'N/A'} (Price is ${q.price > ema20 ? 'Above 📈' : 'Below 📉'} EMA20)`;
+
+    const analysis = await getAIAnalysis(`วิเคราะห์หุ้น ${symbol} ราคา $${q.price} RSI: ${rsi} EMA20: ${ema20} ข่าว: ${news}`);
+    await sendEmbed(interaction, `📈 Analysis: ${symbol}`, `**Price:** $${q.price}\n\n${technical}\n\n🕵️ **AI Analysis:**\n${analysis}`);
   },
 
   'add-stock': async (interaction) => {
     const symbol = interaction.options.getString('symbol').toUpperCase();
     const amount = interaction.options.getNumber('amount');
     const avgPrice = interaction.options.getNumber('avg_price');
-    const existing = await Watchlist.findOne({ userId: interaction.user.id, symbol });
+    const fee = interaction.options.getNumber('fee') || 0;
 
-    if (existing) {
-      existing.avgPrice = ((existing.amount * existing.avgPrice) + amount * avgPrice) / (existing.amount + amount);
-      existing.amount += amount;
-      await existing.save();
-    } else {
-      await Watchlist.create({ userId: interaction.user.id, symbol, amount, avgPrice });
-    }
-
-    await Transaction.create({ userId: interaction.user.id, symbol, type: 'BUY', amount, price: avgPrice });
-    await interaction.editReply(`✅ เพิ่มหุ้น **${symbol}** เรียบร้อย!`);
+    await getStockPrice(symbol);
+    await updatePortfolio(interaction.user.id, symbol, amount, avgPrice, false, fee);
+    await interaction.editReply(`✅ เพิ่มหุ้น **${symbol}** เข้าพอร์ตเรียบร้อย! (รวมค่าธรรมเนียม $${fee.toFixed(2)})`);
   },
 
   'remove-stock': async (interaction) => {
@@ -116,8 +153,15 @@ const handlers = {
   watchlist: async (interaction) => {
     const stocks = await Watchlist.find({ userId: interaction.user.id });
     if (!stocks.length) return interaction.editReply('📭 พอร์ตว่างเปล่า');
-    const { lines, total } = await formatWatchlist(stocks);
-    await sendEmbed(interaction, 'My Watchlist', `📊 **Overview**\n${lines.join('\n')}\n\n💰 **Total P/L: $${total.toFixed(2)}**`, 0xFFA500);
+    
+    const { lines, totalPortfolioValue, totalProfit, totalProfitPercent } = await formatWatchlist(stocks);
+    
+    const summary = `📊 **ภาพรวมพอร์ตของคุณ**\n` +
+      `💰 **มูลค่ารวม:** $${totalPortfolioValue.toFixed(2)}\n` +
+      `💵 **กำไร/ขาดทุนรวม:** $${totalProfit.toFixed(2)} (${totalProfitPercent.toFixed(2)}%)\n\n` +
+      `🔍 **รายละเอียดรายตัว:**\n${lines.join('\n')}`;
+
+    await sendEmbed(interaction, 'My Watchlist', summary, 0xFFA500);
   },
 
   'update-stock': async (interaction) => {
@@ -246,6 +290,37 @@ const handlers = {
     }));
 
     await sendEmbed(interaction, '📈 DCA Performance', lines.join('\n'), 0x2ECC71);
+  },
+
+  'add-dividend': async (interaction) => {
+    const symbol = interaction.options.getString('symbol').toUpperCase();
+    const amount = interaction.options.getNumber('amount');
+    await addDividend(interaction.user.id, symbol, amount);
+    await interaction.editReply(`💰 บันทึกเงินปันผล **${symbol}** จำนวน $${amount.toFixed(2)} เรียบร้อย!\n📉 ต้นทุนเฉลี่ยของคุณลดลงแล้ว`);
+  },
+
+  'alert-add': async (interaction) => {
+    const symbol = interaction.options.getString('symbol').toUpperCase();
+    const price = interaction.options.getNumber('price');
+    const type = interaction.options.getString('type');
+    await Alert.create({ userId: interaction.user.id, symbol, targetPrice: price, type });
+    await interaction.editReply(`🔔 ตั้งแจ้งเตือน **${symbol}** เมื่อราคา **${type === 'above' ? 'สูงกว่า' : 'ต่ำกว่า'} $${price}** เรียบร้อย!`);
+  },
+
+  'alert-list': async (interaction) => {
+    const alerts = await Alert.find({ userId: interaction.user.id, active: true });
+    if (!alerts.length) return interaction.editReply('📭 คุณไม่มีรายการแจ้งเตือน');
+    const list = alerts.map(a => `- **${a.symbol}**: ${a.type} $${a.targetPrice}`).join('\n');
+    await sendEmbed(interaction, '🔔 Active Alerts', list, 0xFFFF00);
+  },
+
+  'portfolio-history': async (interaction) => {
+    const history = await Snapshot.find({ userId: interaction.user.id }).sort({ date: -1 }).limit(7);
+    if (!history.length) return interaction.editReply('📭 ยังไม่มีประวัติพอร์ต (ระบบจะเริ่มบันทึกคืนนี้)');
+    const list = history.reverse().map(s => 
+      `📅 ${s.date.toLocaleDateString()}: **$${s.totalValue.toFixed(2)}** (${s.profit >= 0 ? '+' : ''}$${s.profit.toFixed(2)})`
+    ).join('\n');
+    await sendEmbed(interaction, '📈 Portfolio Growth (7 Days)', list, 0x3498DB);
   },
 };
 

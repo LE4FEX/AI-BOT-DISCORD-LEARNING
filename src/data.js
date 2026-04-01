@@ -70,4 +70,46 @@ const getStockNews = async (symbol) => {
   }
 };
 
-module.exports = { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews };
+const getStockHistory = async (symbol, range = '1mo', interval = '1d') => {
+  try {
+    const res = await httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`);
+    const chart = res.data.chart.result[0];
+    return chart.indicators.quote[0].close;
+  } catch (error) {
+    console.error(`[History] Error fetching ${symbol}:`, error.message);
+    return [];
+  }
+};
+
+const calculateRSI = (prices, period = 14) => {
+  if (prices.length <= period) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff > 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period, avgLoss = losses / period;
+  for (let i = period + 1; i < prices.length; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff > 0) {
+      avgGain = (avgGain * (period - 1) + diff) / period;
+      avgLoss = (avgLoss * (period - 1)) / period;
+    } else {
+      avgGain = (avgGain * (period - 1)) / period;
+      avgLoss = (avgLoss * (period - 1) - diff) / period;
+    }
+  }
+  return 100 - (100 / (1 + avgGain / avgLoss));
+};
+
+const calculateEMA = (prices, period) => {
+  if (prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+};
+
+module.exports = { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA };

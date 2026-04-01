@@ -1,9 +1,40 @@
 const mongoose = require('mongoose');
 const Dca = require('./models/dca');
 const Watchlist = require('./models/watchlist');
-const Transaction = require('./models/transaction');
+const Snapshot = require('./models/snapshot');
 const { getStockPrice } = require('./data');
 const { broadcast } = require('./bot');
+
+const { updatePortfolio } = require('./portfolio-service');
+
+const takeDailySnapshot = async () => {
+  console.log('[Snapshot] Running daily snapshot...');
+  const users = await Watchlist.distinct('userId');
+
+  for (const userId of users) {
+    const stocks = await Watchlist.find({ userId });
+    if (stocks.length === 0) continue;
+
+    let totalValue = 0, totalCost = 0;
+
+    for (const stock of stocks) {
+      try {
+        const q = await getStockPrice(stock.symbol);
+        totalValue += q.price * stock.amount;
+        totalCost += stock.avgPrice * stock.amount;
+      } catch (e) {
+        totalCost += stock.avgPrice * stock.amount;
+        totalValue += stock.avgPrice * stock.amount; // Fallback
+      }
+    }
+
+    const profit = totalValue - totalCost;
+    const profitPercent = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+
+    await Snapshot.create({ userId, totalValue, totalCost, profit, profitPercent });
+  }
+  console.log('[Snapshot] Daily snapshot completed');
+};
 
 const executeDcaPlans = async () => {
   const now = new Date();
@@ -20,21 +51,14 @@ const executeDcaPlans = async () => {
     try {
       const { symbol, amount, userId, frequency } = plan;
       const { price } = await getStockPrice(symbol);
-      
-      const units = amount / price;
 
-      // 1. อัปเดต Watchlist (พอร์ต)
-      const existing = await Watchlist.findOne({ userId, symbol });
-      if (existing) {
-        existing.avgPrice = ((existing.amount * existing.avgPrice) + amount) / (existing.amount + units);
-        existing.amount += units;
-        await existing.save();
-      } else {
-        await Watchlist.create({ userId, symbol, amount: units, avgPrice: price });
-      }
+      // คำนวณค่าธรรมเนียมเบื้องต้น (เช่น 0.2%)
+      const fee = amount * 0.002;
+      const netAmount = amount - fee;
+      const units = netAmount / price;
 
-      // 2. บันทึก Transaction
-      await Transaction.create({ userId, symbol, type: 'BUY', amount: units, price, isDca: true });
+      // ใช้ Service กลางเพื่ออัปเดตพอร์ตและบันทึกรายการ
+      await updatePortfolio(userId, symbol, units, price, true, fee);
 
       // 3. อัปเดต DCA Plan สำหรับครั้งถัดไป
       let nextDate = new Date(plan.nextExecution);
@@ -49,7 +73,7 @@ const executeDcaPlans = async () => {
       await plan.save();
 
       // 4. แจ้งเตือนผู้ใช้
-      await broadcast(userId, `🚀 **DCA Executed!**\n💎 หุ้น: **${symbol}**\n💵 ลงทุน: $${amount.toFixed(2)}\n📈 ราคา: $${price.toFixed(2)}\n📦 ได้รับ: ${units.toFixed(4)} หุ้น`);
+      await broadcast(userId, `🚀 **DCA Executed!**\n💎 หุ้น: **${symbol}**\n💵 ลงทุน: $${amount.toFixed(2)} (ค่าธรรมเนียม: $${fee.toFixed(2)})\n📈 ราคา: $${price.toFixed(2)}\n📦 ได้รับ: ${units.toFixed(4)} หุ้น`);
 
     } catch (error) {
       console.error(`[DCA] Failed for plan ${plan._id}:`, error.message);
@@ -60,7 +84,16 @@ const executeDcaPlans = async () => {
 const startDcaScheduler = () => {
   // รันทุกๆ 15 นาที เพื่อเช็คว่ามี DCA ตัวไหนถึงเวลาหรือยัง
   setInterval(executeDcaPlans, 15 * 60 * 1000);
+
+  // รัน Snapshot วันละครั้ง (เช็คทุก 15 นาทีว่าถึงช่วงเที่ยงคืนหรือยัง)
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() === 0 && now.getMinutes() < 15) {
+      takeDailySnapshot();
+    }
+  }, 15 * 60 * 1000);
+
   console.log('[DCA] Scheduler started');
 };
 
-module.exports = { executeDcaPlans, startDcaScheduler };
+module.exports = { executeDcaPlans, startDcaScheduler, takeDailySnapshot };
