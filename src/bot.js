@@ -54,32 +54,48 @@ const commands = [
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 const chunkText = (text, size = 3900) => text.match(/[\s\S]{1,3900}/g) || [text];
-const embedFor = (title, description, color = 0x0099FF) => new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
 
-const sendEmbed = async (interaction, title, description, color = 0x0099FF) => {
+// ฟังก์ชันสร้าง Embed ที่ปลอดภัยต่อ Error เรื่องสี
+const embedFor = (title, description, color) => {
+  const embed = new EmbedBuilder()
+    .setTitle(title || 'Notification')
+    .setDescription(description && description.trim() ? description.trim() : 'No content available.')
+    .setTimestamp();
+  
+  // ตรวจสอบค่าสีให้ชัวร์ว่าเป็นตัวเลข ถ้าไม่ใช่ให้ใช้สีฟ้ามาตรฐาน
+  const finalColor = (typeof color === 'number') ? color : 0x0099FF;
+  embed.setColor(finalColor);
+  
+  return embed;
+};
+
+const sendEmbed = async (interaction, title, description, color) => {
   const text = typeof description === 'string' && description.trim().length ? description.trim() : 'No content available.';
   const chunks = chunkText(text);
+  const finalColor = (typeof color === 'number') ? color : 0x0099FF;
 
   const sendFirst = async () => {
+    const embed = embedFor(title, chunks[0], finalColor);
     if (interaction.deferred || interaction.replied) {
-      return interaction.editReply({ embeds: [embedFor(title, chunks[0], color)], content: '' });
+      return interaction.editReply({ embeds: [embed], content: '' });
     }
-    return interaction.reply({ embeds: [embedFor(title, chunks[0], color)], content: '' });
+    return interaction.reply({ embeds: [embed], content: '' });
   };
 
   try {
     await sendFirst();
   } catch (error) {
     console.error('sendEmbed initial reply failed:', error.message);
+    const embed = embedFor(title, chunks[0], finalColor);
     if (!interaction.replied) {
-      await interaction.reply({ embeds: [embedFor(title, chunks[0], color)], content: '' });
+      await interaction.reply({ embeds: [embed], content: '' });
     } else {
-      await interaction.followUp({ embeds: [embedFor(title, chunks[0], color)], content: '' });
+      await interaction.followUp({ embeds: [embed], content: '' });
     }
   }
 
   for (let i = 1; i < chunks.length; i++) {
-    await interaction.followUp({ embeds: [embedFor('', chunks[i], color)], content: '' });
+    await interaction.followUp({ embeds: [embedFor('', chunks[i], finalColor)], content: '' });
   }
 };
 
