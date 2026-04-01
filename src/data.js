@@ -3,7 +3,14 @@ const cheerio = require('cheerio');
 
 const MARKET_LEADERS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'META', 'GOOGL', 'AMZN', 'NFLX', 'AMD', 'COIN', 'BTC-USD'];
 
-const httpGet = (url, options = {}) => axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000, ...options });
+const httpGet = (url, options = {}) => axios.get(url, { 
+  headers: { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json'
+  }, 
+  timeout: 8000, 
+  ...options 
+});
 
 const getMarketSentiment = async () => {
   try {
@@ -11,11 +18,24 @@ const getMarketSentiment = async () => {
       httpGet('https://production.dataviz.cnn.io/index/fearandgreed/graphdata'),
       httpGet('https://api.alternative.me/fng/?limit=1'),
     ]);
+    
+    if (!stockRes.data?.fear_and_greed || !cryptoRes.data?.data?.[0]) {
+      console.error('[Sentiment] Invalid data structure');
+      return null;
+    }
+
     return {
-      stock: { score: Math.round(stockRes.data.fear_and_greed.score), rating: stockRes.data.fear_and_greed.rating },
-      crypto: { score: cryptoRes.data.data[0].value, rating: cryptoRes.data.data[0].value_classification },
+      stock: { 
+        score: Math.round(stockRes.data.fear_and_greed.score), 
+        rating: stockRes.data.fear_and_greed.rating 
+      },
+      crypto: { 
+        score: cryptoRes.data.data[0].value, 
+        rating: cryptoRes.data.data[0].value_classification 
+      },
     };
   } catch (error) {
+    console.error('[Sentiment] Error fetching:', error.message);
     return null;
   }
 };
