@@ -87,11 +87,27 @@ const getAIAnalysis = async (prompt, specializedInstruction = null) => {
 };
 
 const sendEmbed = async (interaction, title, description, color = 0x0099FF) => {
-    const chunks = description.match(/[\s\S]{1,3900}/g) || [description];
+    const text = typeof description === 'string' && description.trim().length ? description.trim() : 'No content available.';
+    const chunks = text.match(/[\s\S]{1,3900}/g) || [text];
     const embed = (desc) => new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp();
-    await interaction.editReply({ embeds: [embed(chunks[0])] });
+    const sendFirst = async () => {
+        if (interaction.deferred || interaction.replied) {
+            return interaction.editReply({ embeds: [embed(chunks[0])], content: '' });
+        }
+        return interaction.reply({ embeds: [embed(chunks[0])], content: '' });
+    };
+    try {
+        await sendFirst();
+    } catch (error) {
+        console.error('sendEmbed initial reply failed:', error);
+        if (!interaction.replied) {
+            await interaction.reply({ embeds: [embed(chunks[0])], content: '' });
+        } else {
+            await interaction.followUp({ embeds: [embed(chunks[0])], content: '' });
+        }
+    }
     for (let i = 1; i < chunks.length; i++) {
-        await interaction.followUp({ embeds: [new EmbedBuilder().setDescription(chunks[i]).setColor(color)] });
+        await interaction.followUp({ embeds: [new EmbedBuilder().setDescription(chunks[i]).setColor(color)], content: '' });
     }
 };
 
