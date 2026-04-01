@@ -19,7 +19,7 @@ const getCleanEnv = (key) => process.env[key]?.replace(/["']/g, '').trim();
 
 const geminiKey = getCleanEnv('GEMINI_API_KEY');
 const genAI = geminiKey ? new GoogleGenerativeAI(geminiKey) : null;
-const MODEL_NAME = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const MODEL_NAME = getCleanEnv('GEMINI_MODEL') || "gemini-2.5-flash";
 
 const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
 บุคลิก: สุภาพ, เป็นกันเองแต่เป็นมืออาชีพ, มั่นใจ
