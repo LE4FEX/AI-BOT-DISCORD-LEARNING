@@ -3,6 +3,7 @@ const { getAIAnalysis } = require('./ai');
 const { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews } = require('./data');
 const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
+const Dca = require('./models/dca');
 const { env } = require('./config');
 
 const commands = [
@@ -17,6 +18,18 @@ const commands = [
   new SlashCommandBuilder().setName('discover').setDescription('ค้นหาหุ้นน่าสนใจ'),
   new SlashCommandBuilder().setName('sentiment').setDescription('เช็คสภาวะตลาด'),
   new SlashCommandBuilder().setName('analyze-diversification').setDescription('วิเคราะห์การกระจายตัวพอร์ต'),
+  new SlashCommandBuilder().setName('dca-add').setDescription('ตั้งค่า DCA รายวัน/สัปดาห์/เดือน')
+    .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true))
+    .addNumberOption(o => o.setName('amount').setDescription('จำนวนเงินลงทุนแต่ละครั้ง (USD)').setRequired(true))
+    .addStringOption(o => o.setName('frequency').setDescription('ความถี่').setRequired(true).addChoices(
+      { name: 'Daily', value: 'DAILY' },
+      { name: 'Weekly', value: 'WEEKLY' },
+      { name: 'Monthly', value: 'MONTHLY' }
+    )),
+  new SlashCommandBuilder().setName('dca-list').setDescription('ดูรายการ DCA ของคุณ'),
+  new SlashCommandBuilder().setName('dca-remove').setDescription('ลบแผน DCA')
+    .addStringOption(o => o.setName('symbol').setDescription('ตัวย่อหุ้น').setRequired(true)),
+  new SlashCommandBuilder().setName('dca-stats').setDescription('ดูสถิติการลงทุนแบบ DCA ทั้งหมดของคุณ'),
 ].map((cmd) => cmd.toJSON());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -167,6 +180,72 @@ const handlers = {
       .map(([sector, value]) => `- **${sector}:** ${(value / Object.values(allocation).reduce((sum, v) => sum + v, 0) * 100).toFixed(2)}%`)
       .join('\n');
     await sendEmbed(interaction, '🧩 Diversification', `📈 **Allocation:**\n${sectorText}\n\n🕵️ **AI:**\n${await getAIAnalysis(`วิเคราะห์กระจายความเสี่ยง: ${JSON.stringify(allocation)}`)}`, 0x3498DB);
+  },
+
+  'dca-add': async (interaction) => {
+    const symbol = interaction.options.getString('symbol').toUpperCase();
+    const amount = interaction.options.getNumber('amount');
+    const frequency = interaction.options.getString('frequency');
+    const userId = interaction.user.id;
+
+    // ตรวจสอบว่ามีหุ้นนี้อยู่จริงไหม
+    await getStockPrice(symbol);
+
+    const nextExecution = new Date();
+    // เริ่มครั้งแรกทันที หรือจะเริ่มพรุ่งนี้? ปกติ DCA มักจะเริ่มทันทีที่ตั้งค่า
+    // แต่เพื่อความปลอดภัย ให้เริ่มใน 1 นาทีถัดไป
+    nextExecution.setMinutes(nextExecution.getMinutes() + 1);
+
+    await Dca.findOneAndUpdate(
+      { userId, symbol },
+      { amount, frequency, nextExecution, isActive: true },
+      { upsert: true, new: true }
+    );
+
+    await interaction.editReply(`✅ ตั้งค่า DCA สำหรับ **${symbol}** เรียบร้อย!\n💵 จำนวน: $${amount.toFixed(2)}\n📅 ความถี่: ${frequency}\n🚀 จะเริ่มดำเนินการเร็วๆ นี้`);
+  },
+
+  'dca-list': async (interaction) => {
+    const plans = await Dca.find({ userId: interaction.user.id, isActive: true });
+    if (!plans.length) return interaction.editReply('📭 คุณยังไม่มีแผน DCA');
+
+    const list = plans.map(p => 
+      `🔹 **${p.symbol}**: $${p.amount.toFixed(2)} (${p.frequency}) | รอบถัดไป: ${p.nextExecution.toLocaleDateString()}`
+    ).join('\n');
+
+    await sendEmbed(interaction, '📋 Your DCA Plans', list, 0x00FFFF);
+  },
+
+  'dca-remove': async (interaction) => {
+    const symbol = interaction.options.getString('symbol').toUpperCase();
+    const result = await Dca.deleteOne({ userId: interaction.user.id, symbol });
+    await interaction.editReply(result.deletedCount ? `🗑️ ยกเลิก DCA สำหรับ **${symbol}** เรียบร้อย` : `❌ ไม่พบแผน DCA สำหรับ **${symbol}**`);
+  },
+
+  'dca-stats': async (interaction) => {
+    const transactions = await Transaction.find({ userId: interaction.user.id, isDca: true });
+    if (!transactions.length) return interaction.editReply('📭 คุณยังไม่มีประวัติการลงทุนแบบ DCA');
+
+    const stats = transactions.reduce((acc, t) => {
+      if (!acc[t.symbol]) acc[t.symbol] = { totalInvested: 0, totalUnits: 0 };
+      acc[t.symbol].totalInvested += (t.amount * t.price);
+      acc[t.symbol].totalUnits += t.amount;
+      return acc;
+    }, {});
+
+    const lines = await Promise.all(Object.entries(stats).map(async ([symbol, data]) => {
+      try {
+        const q = await getStockPrice(symbol);
+        const currentValue = data.totalUnits * q.price;
+        const profit = currentValue - data.totalInvested;
+        const percent = (profit / data.totalInvested) * 100;
+        return `🔹 **${symbol}**: ลงทุน $${data.totalInvested.toFixed(2)} | ปัจจุบัน $${currentValue.toFixed(2)} (${profit >= 0 ? '📈 +' : '📉 '}${percent.toFixed(2)}%)`;
+      } catch {
+        return `🔹 **${symbol}**: ลงทุน $${data.totalInvested.toFixed(2)} (ดึงราคาปัจจุบันไม่ได้)`;
+      }
+    }));
+
+    await sendEmbed(interaction, '📈 DCA Performance', lines.join('\n'), 0x2ECC71);
   },
 };
 

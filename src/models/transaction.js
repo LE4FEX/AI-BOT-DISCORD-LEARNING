@@ -28,6 +28,10 @@ const transactionSchema = new mongoose.Schema({
     date: { 
         type: Date, 
         default: Date.now 
+    },
+    isDca: {
+        type: Boolean,
+        default: false
     }
 });
 
