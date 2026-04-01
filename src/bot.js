@@ -54,7 +54,7 @@ const commands = [
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 const chunkText = (text, size = 3900) => text.match(/[\s\S]{1,3900}/g) || [text];
-const embedFor = (title, description, color) => new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
+const embedFor = (title, description, color = 0x0099FF) => new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
 
 const sendEmbed = async (interaction, title, description, color = 0x0099FF) => {
   const text = typeof description === 'string' && description.trim().length ? description.trim() : 'No content available.';
