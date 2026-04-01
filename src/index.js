@@ -15,7 +15,10 @@ const Watchlist = require('./models/watchlist');
 const Transaction = require('./models/transaction');
 
 // --- 🤖 AI CONFIG ---
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+const getCleanEnv = (key) => process.env[key]?.replace(/["']/g, '').trim();
+
+const geminiKey = getCleanEnv('GEMINI_API_KEY');
+const genAI = geminiKey ? new GoogleGenerativeAI(geminiKey) : null;
 const MODEL_NAME = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 
 const systemInstruction = `คุณคือ 'AI Alpha' ผู้เชี่ยวชาญด้านการวิเคราะห์การลงทุนและที่ปรึกษาทางการเงินส่วนตัว
@@ -75,8 +78,12 @@ const getAIAnalysis = async (prompt, specializedInstruction = null) => {
         const sentimentCtx = sentiment ? `\nMarket: Stock ${sentiment.stock.score}(${sentiment.stock.rating}), Crypto ${sentiment.crypto.score}(${sentiment.crypto.rating})` : "";
         const model = genAI.getGenerativeModel({ model: MODEL_NAME, systemInstruction: (specializedInstruction || systemInstruction) + sentimentCtx });
         const result = await model.generateContent(prompt);
-        return result.response.text().trim();
-    } catch (e) { return "⚠️ AI ไม่สามารถวิเคราะห์ได้ในขณะนี้"; }
+        const response = await result.response;
+        return response.text().trim();
+    } catch (e) { 
+        console.error("AI Analysis Error:", e.message);
+        return "⚠️ AI ไม่สามารถวิเคราะห์ได้ในขณะนี้ (ตรวจสอบความถูกต้องของ API Key หรือลองใหม่อีกครั้ง)"; 
+    }
 };
 
 const sendEmbed = async (interaction, title, description, color = 0x0099FF) => {
