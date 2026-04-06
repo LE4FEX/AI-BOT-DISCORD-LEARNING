@@ -1,18 +1,22 @@
-﻿const express = require('express');
+const express = require('express');
 const mongoose = require('mongoose');
+const cron = require('node-cron');
 const { setupBot } = require('./bot');
 const { env } = require('./config');
 const { startDcaScheduler } = require('./dca-service');
 const { startAlertScheduler } = require('./alert-service');
 const { startNewsScheduler } = require('./news-service');
-const { startBriefingScheduler } = require('./briefing-service');
+const { startBriefingScheduler, sendDailyBriefing, getLatestBriefing } = require('./briefing-service');
+const { takePortfolioSnapshot } = require('./portfolio-service');
+const { getMarketSentiment, getMarketTrend } = require('./data');
+const { log, getLogs } = require('./logger');
 const path = require('path');
 
 const app = express();
 const port = env.port;
 
-// เปิดใช้งานการส่งไฟล์ Static (สำหรับ Dashboard)
 app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.json());
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
@@ -49,7 +53,7 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/portfolio-detailed', async (req, res) => {
   try {
     const Watchlist = require('./models/watchlist');
-    const { getStockHistory, calculateRSI } = require('./data');
+    const { calculateRSI, getStockHistory } = require('./data');
     const stocks = await Watchlist.find();
     const detailed = await Promise.all(stocks.map(async (s) => {
       try {
@@ -90,7 +94,42 @@ app.get('/api/portfolio-summary', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/ai-simulate', express.json(), async (req, res) => {
+app.get('/api/portfolio-history', async (req, res) => {
+  try {
+    const Snapshot = require('./models/snapshot');
+    const history = await Snapshot.find().sort({ date: 1 }).limit(30);
+    res.json(history);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sentiment', async (req, res) => {
+  try {
+    const [sentiment, trend] = await Promise.all([getMarketSentiment(), getMarketTrend()]);
+    res.json({ sentiment, trend });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/briefing-latest', (req, res) => {
+  res.json({ briefing: getLatestBriefing() });
+});
+
+app.get('/api/logs', (req, res) => {
+  res.json(getLogs());
+});
+
+app.post('/api/trigger-briefing', async (req, res) => {
+  log('Manual briefing trigger requested', 'admin');
+  sendDailyBriefing(); // Run in background
+  res.json({ success: true, message: 'Briefing started' });
+});
+
+app.post('/api/trigger-snapshot', async (req, res) => {
+  log('Manual snapshot trigger requested', 'admin');
+  takePortfolioSnapshot(); // Run in background
+  res.json({ success: true, message: 'Snapshot started' });
+});
+
+app.post('/api/ai-simulate', async (req, res) => {
   try {
     const { getAIAnalysis } = require('./ai');
     const { scenario } = req.body;
@@ -118,7 +157,17 @@ app.get('/api/recent', async (req, res) => {
   try {
     const Transaction = require('./models/transaction');
     const recent = await Transaction.find().sort({ date: -1 }).limit(10);
-    res.json(recent);
+    
+    // Add % Change logic
+    const detailedRecent = await Promise.all(recent.map(async (tx) => {
+      try {
+        const q = await getCachedPrice(tx.symbol);
+        const change = ((q.price - tx.price) / tx.price) * 100;
+        return { ...tx.toObject(), currentPrice: q.price, changePercent: change };
+      } catch (e) { return tx; }
+    }));
+
+    res.json(detailedRecent);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -127,12 +176,16 @@ app.get('/api/recent', async (req, res) => {
 app.listen(port, '0.0.0.0', async () => {
   try {
     await mongoose.connect(env.mongoUri);
-    console.log('✅ Connected to MongoDB');
+    log('✅ Connected to MongoDB');
     await setupBot();
     startDcaScheduler();
     startAlertScheduler();
     startNewsScheduler();
     startBriefingScheduler();
+    
+    // Snapshot daily at midnight
+    cron.schedule('0 0 * * *', takePortfolioSnapshot);
+    log('🚀 All systems online', 'system');
   } catch (error) {
     console.error('BOOT ERROR:', error.message);
   }
