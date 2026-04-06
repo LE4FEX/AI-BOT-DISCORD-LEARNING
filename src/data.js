@@ -112,6 +112,34 @@ const calculateEMA = (prices, period) => {
   return ema;
 };
 
+const getMarketTrend = async () => {
+  const indices = [
+    { name: 'S&P 500', symbol: '^GSPC' },
+    { name: 'SET Index', symbol: '^SET' }
+  ];
+
+  const results = await Promise.all(indices.map(async (idx) => {
+    try {
+      const history = await getStockHistory(idx.symbol, '1y', '1d');
+      if (!history.length) return null;
+      const current = history[history.length - 1];
+      const ema200 = calculateEMA(history, 200);
+      if (!ema200) return null;
+      
+      return {
+        name: idx.name,
+        current: current.toFixed(2),
+        ema200: ema200.toFixed(2),
+        status: current > ema200 ? 'Bullish 📈' : 'Bearish 📉'
+      };
+    } catch {
+      return null;
+    }
+  }));
+
+  return results.filter(Boolean);
+};
+
 const getChartUrl = (symbol, prices) => {
   if (!prices || prices.length === 0) return null;
   
@@ -144,4 +172,4 @@ const getChartUrl = (symbol, prices) => {
   return `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&bkg=white`;
 };
 
-module.exports = { MARKET_LEADERS, getMarketSentiment, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA, getChartUrl };
+module.exports = { MARKET_LEADERS, getMarketSentiment, getMarketTrend, getStockPrice, getStockProfile, getStockNews, getStockHistory, calculateRSI, calculateEMA, getChartUrl };
