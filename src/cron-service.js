@@ -16,6 +16,12 @@ async function checkAndWakeCron() {
 
     // 1. ตรวจสอบสถานะปัจจุบัน
     const response = await axios.get(url, { headers });
+    
+    if (!response.data || !response.data.job) {
+      console.error('❌ Cron-job API returned unexpected response format:', response.data);
+      return;
+    }
+
     const jobStatus = response.data.job.enabled;
 
     if (!jobStatus) {
