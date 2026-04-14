@@ -45,7 +45,8 @@ const checkAlerts = async () => {
       }
 
       // --- 2. ตรวจสอบความผันผวนอัตโนมัติ (Auto Volatility) ---
-      if (Math.abs(changePercent) >= VOLATILITY_THRESHOLD) {
+      const absChange = Math.abs(changePercent);
+      if (absChange >= VOLATILITY_THRESHOLD) {
         const holders = allWatchlists.filter(w => w.symbol === symbol);
         const userIds = [...new Set(holders.map(h => h.userId))];
 
@@ -54,9 +55,15 @@ const checkAlerts = async () => {
           const log = await VolatilityLog.findOne({ userId, symbol, date: today });
           if (!log || Math.abs(changePercent - log.lastTriggeredPercent) >= 2.0) {
             
-            // ดึงข่าวมาให้ AI ช่วยวิเคราะห์สาเหตุ
-            const news = await getStockNews(symbol);
-            const aiAnalysis = await getAIAnalysis(`หุ้น ${symbol} ขยับ ${changePercent.toFixed(2)}% ราคา $${currentPrice} ข่าวล่าสุด: ${news}`, "คุณคือ Jarvis AI วิเคราะห์ความผันผวนของราคาหุ้น แจ้งเตือนกระชับ ตรงประเด็น");
+            let aiAnalysis = "No AI analysis for small movements.";
+            
+            // --- 3. GATEKEEPING: AI วิเคราะห์เฉพาะเมื่อผันผวนสูง (เช่น > 5%) ---
+            if (absChange >= 5.0) {
+              const news = await getStockNews(symbol);
+              aiAnalysis = await getAIAnalysis(`หุ้น ${symbol} ขยับ ${changePercent.toFixed(2)}% ราคา $${currentPrice} ข่าวล่าสุด: ${news}`, "คุณคือ Jarvis AI วิเคราะห์ความผันผวนของราคาหุ้น แจ้งเตือนกระชับ ตรงประเด็น");
+            } else {
+              aiAnalysis = "⚠️ ราคาขยับปกติ (Vol < 5%) ระบบจึงไม่ได้เรียก AI เพื่อประหยัด Quota";
+            }
 
             await broadcast(userId, `⚠️ **Jarvis Alert: Volatility Detected!**\n${changePercent >= 0 ? '🚀' : '📉'} **${symbol}** ขยับแรง **${changePercent.toFixed(2)}%** ในวันนี้!\n💰 ราคา: $${currentPrice.toFixed(2)} (ปิดก่อนหน้า: $${prevClose.toFixed(2)})\n\n🤖 **Jarvis Analysis:**\n${aiAnalysis}`);
 

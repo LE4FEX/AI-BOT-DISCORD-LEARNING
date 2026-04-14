@@ -8,7 +8,7 @@ const env = {
   clientId: clean('CLIENT_ID'),
   mongoUri: clean('MONGODB_URI'),
   geminiKey: clean('GEMINI_API_KEY'),
-  modelName: clean('GEMINI_MODEL') || 'gemini-2.5-flash',
+  modelName: clean('GEMINI_MODEL') || 'gemini-1.5-flash',
   renderUrl: clean('RENDER_EXTERNAL_URL'),
   cronJobApiKey: clean('CRON_JOB_API_KEY'),
   cronJobId: clean('CRON_JOB_ID'),

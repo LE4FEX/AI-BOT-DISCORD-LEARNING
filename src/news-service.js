@@ -5,10 +5,15 @@ const { getAIAnalysis } = require('./ai');
 const { broadcast } = require('./bot');
 const crypto = require('crypto');
 
+// --- NEWS BATCHING & FILTERING CONFIG ---
+const NEWS_BATCH_INTERVAL = 30 * 60 * 1000; // 30 mins
+const CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
+const IMPORTANT_KEYWORDS = ["Earnings", "SEC", "CEO", "Dividend", "IPO", "Merger", "Acquisition", "Fed"];
+
+let newsQueue = [];
+
 const checkNewsUpdates = async () => {
   console.log('[News] Checking for news updates...');
-  
-  // 1. ดึงหุ้นทั้งหมดที่มีคนถืออยู่ในพอร์ต
   const symbols = await Watchlist.distinct('symbol');
   
   for (const symbol of symbols) {
@@ -16,34 +21,30 @@ const checkNewsUpdates = async () => {
       const newsString = await getStockNews(symbol);
       if (newsString === 'No news found' || newsString === 'News unavailable') continue;
 
-      // แยกข่าวรายหัวข้อ (ใช้ตัวแบ่ง | ที่เราทำไว้ใน getStockNews)
       const newsItems = newsString.split(' | ');
-
       for (const item of newsItems) {
+        // --- 3. GATEKEEPING (Keyword Filtering) ---
+        const hasKeyword = IMPORTANT_KEYWORDS.some(kw => item.toLowerCase().includes(kw.toLowerCase()));
+        const isWatchlistSymbol = symbols.some(s => item.includes(s));
+        if (!hasKeyword && !isWatchlistSymbol) continue; // ข้ามข่าวที่ไม่สำคัญ
+
         const titleHash = crypto.createHash('md5').update(item).digest('hex');
 
-        // 2. ตรวจสอบว่าเคยส่งข่าวนี้นไปหรือยัง
-        const exists = await NewsLog.findOne({ titleHash });
-        if (exists) continue;
+        // --- 2. RESPONSE CACHING (Check MongoDB) ---
+        const existingResult = await NewsLog.findOne({ 
+          $or: [{ titleHash }, { title: item }],
+          date: { $gt: new Date(Date.now() - CACHE_TTL) }
+        });
 
-        // 3. ใช้ AI วิเคราะห์ความสำคัญและ Sentiment
-        const aiPrompt = `วิเคราะห์หัวข้อข่าวหุ้น ${symbol}: "${item}" 
-        1. ข่าวนี้ส่งผลกระทบต่อราคาหุ้นในระดับไหน (Low/Medium/High)?
-        2. Sentiment เป็นอย่างไร (Bullish/Bearish/Neutral)?
-        3. สรุปสั้นๆ 1 ประโยค
-        ตอบเป็นภาษาไทยแบบสั้นๆ กระชับ`;
+        if (existingResult && existingResult.summary) {
+          // ถ้าเคยสรุปแล้ว ใช้ของเดิม (ข้ามการส่งเข้า Queue เพื่อสรุปซ้ำ)
+          await notifyUsers(symbol, item, existingResult.summary);
+          continue;
+        }
 
-        const analysis = await getAIAnalysis(item, "คุณคือ AI ผู้คัดกรองข่าวหุ้น เน้นความกระชับและแม่นยำ");
-
-        // 4. บันทึกข่าวนลง Log
-        await NewsLog.create({ symbol, titleHash });
-
-        // 5. แจ้งเตือนผู้ใช้ทุกคนที่ถือหุ้นนี้
-        const holders = await Watchlist.find({ symbol });
-        const userIds = [...new Set(holders.map(h => h.userId))];
-
-        for (const userId of userIds) {
-          await broadcast(userId, `📰 **News Alert: ${symbol}**\n\n${item}\n\n🤖 **Jarvis Analysis:**\n${analysis}`);
+        // เพิ่มเข้า Queue เพื่อรอสรุปแบบ Batch
+        if (!newsQueue.find(q => q.titleHash === titleHash)) {
+          newsQueue.push({ symbol, item, titleHash });
         }
       }
     } catch (error) {
@@ -52,9 +53,50 @@ const checkNewsUpdates = async () => {
   }
 };
 
+const processNewsQueue = async () => {
+  if (newsQueue.length === 0) return;
+
+  console.log(`[News] Processing batch of ${newsQueue.length} items...`);
+  const batch = [...newsQueue];
+  newsQueue = [];
+
+  // รวมข่าวเป็นก้อนเดียวเพื่อประหยัด Tokens (Batching)
+  const combinedPrompt = batch.map((n, i) => `${i+1}. [${n.symbol}] ${n.item}`).join('\n');
+  const aiPrompt = `สรุปข่าวหุ้นต่อไปนี้แบบสั้นๆ กระชับ (ข่าวละ 1 ประโยค) และระบุ Sentiment (Bullish/Bearish/Neutral):\n${combinedPrompt}\nตอบเป็นภาษาไทย`;
+
+  try {
+    const analysis = await getAIAnalysis(aiPrompt, "คุณคือ AI ผู้สรุปข่าวหุ้นแบบ Batch ประหยัดเวลาและแม่นยำ");
+    const summaries = analysis.split('\n').filter(s => s.trim() !== '');
+
+    for (let i = 0; i < batch.length; i++) {
+      const summary = summaries[i] || summaries[0]; // Fallback
+      await NewsLog.create({ 
+        symbol: batch[i].symbol, 
+        title: batch[i].item, 
+        titleHash: batch[i].titleHash,
+        summary: summary // เพิ่ม field summary ใน NewsLog
+      });
+      await notifyUsers(batch[i].symbol, batch[i].item, summary);
+    }
+  } catch (error) {
+    console.error('[News] Batch processing error:', error.message);
+  }
+};
+
+const notifyUsers = async (symbol, item, analysis) => {
+  const holders = await Watchlist.find({ symbol });
+  const userIds = [...new Set(holders.map(h => h.userId))];
+  for (const userId of userIds) {
+    await broadcast(userId, `📰 **News Alert: ${symbol}**\n\n${item}\n\n🤖 **Jarvis Summary:**\n${analysis}`);
+  }
+};
+
 const startNewsScheduler = () => {
-  // ตรวจสอบข่าวทุก 1 ชั่วโมง เพื่อไม่ให้รบกวนผู้ใช้เกินไป
-  setInterval(checkNewsUpdates, 60 * 60 * 1000);
+  // ตรวจสอบข่าวทุก 30 นาที
+  setInterval(checkNewsUpdates, 30 * 60 * 1000);
+  // ประมวลผล AI ทุก 30 นาที (News Batching)
+  setInterval(processNewsQueue, NEWS_BATCH_INTERVAL);
+  
   console.log('[News] Scheduler started');
 };
 
