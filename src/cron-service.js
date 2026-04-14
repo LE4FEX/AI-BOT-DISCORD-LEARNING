@@ -17,18 +17,22 @@ async function checkAndWakeCron() {
     // 1. ตรวจสอบสถานะปัจจุบัน
     const response = await axios.get(url, { headers });
     
-    if (!response.data || !response.data.job) {
-      console.error('❌ Cron-job API returned unexpected response format:', response.data);
+    // รองรับทั้งรูปแบบ 'job' และ 'jobDetails'
+    const jobData = response.data.job || response.data.jobDetails;
+
+    if (!jobData) {
+      console.error('❌ Cron-job API returned unexpected response format:', JSON.stringify(response.data, null, 2));
       return;
     }
 
-    const jobStatus = response.data.job.enabled;
+    const jobStatus = jobData.enabled;
 
     if (!jobStatus) {
       console.log('⚠️ Cron-job is Inactive! Attempting to reactivate...');
       
       // 2. ถ้าหลับอยู่ ให้สั่งเปิด (Patch status)
-      await axios.patch(url, { job: { enabled: true } }, { headers });
+      // ส่งไปทั้ง job และ jobDetails เพื่อความชัวร์ในกรณีที่ API รองรับต่างกัน
+      await axios.patch(url, { job: { enabled: true }, jobDetails: { enabled: true } }, { headers });
       console.log('✅ Cron-job reactivated successfully, Jarvis!');
     } else {
       console.log('ℹ️ Cron-job is currently active.');
