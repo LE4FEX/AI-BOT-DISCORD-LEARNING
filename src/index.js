@@ -174,6 +174,15 @@ app.get('/api/recent', async (req, res) => {
   }
 });
 
+app.get('/api/ai-usage', async (req, res) => {
+  try {
+    const Usage = require('./models/usage');
+    // ดึงข้อมูลย้อนหลัง 7 วันมาแสดงผล
+    const stats = await Usage.find().sort({ date: -1 }).limit(7);
+    res.json(stats);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.listen(port, '0.0.0.0', async () => {
   try {
     await mongoose.connect(env.mongoUri);
