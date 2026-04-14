@@ -10,6 +10,7 @@ const { startBriefingScheduler, sendDailyBriefing, getLatestBriefing } = require
 const { takePortfolioSnapshot } = require('./portfolio-service');
 const { getMarketSentiment, getMarketTrend } = require('./data');
 const { log, getLogs } = require('./logger');
+const { startCronWakeService } = require('./cron-service');
 const path = require('path');
 
 const app = express();
@@ -182,6 +183,7 @@ app.listen(port, '0.0.0.0', async () => {
     startAlertScheduler();
     startNewsScheduler();
     startBriefingScheduler();
+    startCronWakeService();
     
     // Snapshot daily at midnight
     cron.schedule('0 0 * * *', takePortfolioSnapshot);
