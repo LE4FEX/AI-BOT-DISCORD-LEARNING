@@ -35,11 +35,11 @@ const getAIAnalysis = async (prompt, specializedInstruction = null) => {
     console.error('AI Analysis Error:', error.message);
     
     // ถ้าตัวหลักพัง ลองถอยกลับมาตัวที่เสถียรที่สุด (Fallback)
-    if (env.modelName !== 'gemini-1.5-flash-latest') {
+    if (env.modelName !== 'gemini-1.5-flash') {
         try {
-            console.log('[AI] Falling back to gemini-1.5-flash-latest...');
+            console.log('[AI] Falling back to gemini-1.5-flash...');
             const fallbackModel = genAI.getGenerativeModel({ 
-                model: 'gemini-1.5-flash-latest',
+                model: 'gemini-1.5-flash',
                 systemInstruction: (specializedInstruction || systemInstruction)
             });
             const result = await fallbackModel.generateContent(prompt);
