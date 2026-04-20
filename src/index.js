@@ -183,6 +183,17 @@ app.get('/api/ai-usage', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+    const { getJarvisResponse } = require('./ai');
+    const response = await getJarvisResponse(message);
+    res.json({ response });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(port, '0.0.0.0', async () => {
   try {
     await mongoose.connect(env.mongoUri);
